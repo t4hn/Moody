@@ -1,0 +1,6 @@
+{
+  "name": "MOODY",
+  "description": "A fast, dark-and-moody personal mood diary for one-tap logging, atmospheric insights, searchable history, and local JSON/CSV backup.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
