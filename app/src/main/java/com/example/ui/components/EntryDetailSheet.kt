@@ -1,5 +1,10 @@
 package com.example.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,11 +31,15 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,21 +61,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.model.DailyContext
 import com.example.model.MoodEntry
 import com.example.model.MoodLevel
-import com.example.ui.theme.CharcoalBase
-import com.example.ui.theme.DangerRose
-import com.example.ui.theme.GlassBorder
-import com.example.ui.theme.GlassBorderBright
-import com.example.ui.theme.GlassSurface
-import com.example.ui.theme.GlassSurfaceElevated
-import com.example.ui.theme.ObsidianBg
-import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.model.PhysicalActivityLevel
+import com.example.ui.theme.MoodyTheme
 import com.example.util.DateTimeUtils
 import java.util.Calendar
 
@@ -75,10 +81,12 @@ import java.util.Calendar
 fun EntryDetailSheet(
   entry: MoodEntry,
   suggestedTags: List<String>,
-  onSave: (MoodEntry) -> Unit,
+  dailyContexts: Map<String, DailyContext> = emptyMap(),
+  onSave: (MoodEntry, updateDailySleep: Boolean) -> Unit,
   onDelete: (String) -> Unit,
   onDismiss: () -> Unit,
 ) {
+  val colors = MoodyTheme.colors
   val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
   var mood by remember(entry.id) { mutableIntStateOf(entry.mood) }
   var timestamp by remember(entry.id) { mutableLongStateOf(entry.timestamp) }
@@ -86,13 +94,24 @@ fun EntryDetailSheet(
   var tags by remember(entry.id) { mutableStateOf(entry.tags) }
   var newTagText by remember { mutableStateOf("") }
 
+  // Collapsible Additional Context section (collapsed by default)
+  var isContextExpanded by remember(entry.id) { mutableStateOf(false) }
+  var sleepDurationMinutes by remember(entry.id) { mutableStateOf(entry.sleepDurationMinutes) }
+  var sleepQuality by remember(entry.id) { mutableStateOf(entry.sleepQuality) }
+  var sleepEdited by remember(entry.id) { mutableStateOf(false) }
+
+  var energyLevel by remember(entry.id) { mutableStateOf(entry.energyLevel) }
+  var stressLevel by remember(entry.id) { mutableStateOf(entry.stressLevel) }
+  var anxietyLevel by remember(entry.id) { mutableStateOf(entry.anxietyLevel) }
+  var physicalActivity by remember(entry.id) { mutableStateOf(entry.physicalActivity) }
+
   var showDatePicker by remember { mutableStateOf(false) }
   var showTimePicker by remember { mutableStateOf(false) }
-  var pendingDateUtcMillis by remember { mutableLongStateOf(DateTimeUtils.toUtcDatePickerMillis(timestamp)) }
   var showDeleteConfirmation by remember { mutableStateOf(false) }
 
   val moodLevel = MoodLevel.fromScore(mood)
   val moodColor = moodLevel.color
+  val accentColor = if (colors.isDark) moodColor else colors.accentPrimary
 
   fun addTag(raw: String) {
     val clean = raw.trim().lowercase().removePrefix("#")
@@ -102,11 +121,42 @@ fun EntryDetailSheet(
     newTagText = ""
   }
 
+  fun syncSleepForDateIfUnedited(newTimestamp: Long) {
+    if (!sleepEdited) {
+      val dayKey = DateTimeUtils.formatFileDate(newTimestamp)
+      val dayCtx = dailyContexts[dayKey]
+      sleepDurationMinutes = dayCtx?.sleepDurationMinutes
+      sleepQuality = dayCtx?.sleepQuality
+    }
+  }
+
+  val contextSummary = remember(
+    sleepDurationMinutes,
+    sleepQuality,
+    energyLevel,
+    stressLevel,
+    anxietyLevel,
+    physicalActivity,
+  ) {
+    buildList {
+      sleepDurationMinutes?.let { mins ->
+        val h = mins / 60
+        val m = mins % 60
+        add(if (m == 0) "${h}h sleep" else "${h}h ${m}m sleep")
+      }
+      sleepQuality?.let { add("Sleep $it/5") }
+      energyLevel?.let { add("Energy $it/5") }
+      stressLevel?.let { add("Stress $it/5") }
+      anxietyLevel?.let { add("Anxiety $it/5") }
+      physicalActivity?.let { add(it.label) }
+    }.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+  }
+
   ModalBottomSheet(
     onDismissRequest = onDismiss,
     sheetState = sheetState,
-    containerColor = CharcoalBase,
-    contentColor = TextPrimary,
+    containerColor = colors.surfaceBase,
+    contentColor = colors.textPrimary,
     shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
   ) {
     Column(
@@ -126,12 +176,12 @@ fun EntryDetailSheet(
           Text(
             text = "Entry Details",
             style = MaterialTheme.typography.headlineSmall,
-            color = TextPrimary,
+            color = colors.textPrimary,
           )
           Text(
             text = "Feeling ${moodLevel.label}",
             style = MaterialTheme.typography.bodySmall,
-            color = moodColor,
+            color = if (colors.isDark) moodColor else colors.textSecondary,
           )
         }
 
@@ -144,7 +194,7 @@ fun EntryDetailSheet(
           Icon(
             imageVector = Icons.Outlined.DeleteOutline,
             contentDescription = "Delete entry",
-            tint = DangerRose,
+            tint = colors.danger,
           )
         }
       }
@@ -164,7 +214,7 @@ fun EntryDetailSheet(
       Text(
         text = "Timestamp",
         style = MaterialTheme.typography.labelLarge,
-        color = TextSecondary,
+        color = colors.textSecondary,
       )
       Spacer(modifier = Modifier.height(8.dp))
       Row(
@@ -174,8 +224,8 @@ fun EntryDetailSheet(
         Surface(
           onClick = { showDatePicker = true },
           shape = RoundedCornerShape(14.dp),
-          color = GlassSurface,
-          border = BorderStroke(1.dp, GlassBorder),
+          color = colors.cardSurface,
+          border = BorderStroke(1.dp, colors.border),
           modifier = Modifier
             .weight(1f)
             .minimumInteractiveComponentSize()
@@ -188,14 +238,14 @@ fun EntryDetailSheet(
             Icon(
               imageVector = Icons.Outlined.CalendarToday,
               contentDescription = "Change date",
-              tint = moodColor,
+              tint = accentColor,
               modifier = Modifier.size(16.dp),
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
               text = DateTimeUtils.formatFullDate(timestamp),
               style = MaterialTheme.typography.bodyMedium,
-              color = TextPrimary,
+              color = colors.textPrimary,
             )
           }
         }
@@ -203,8 +253,8 @@ fun EntryDetailSheet(
         Surface(
           onClick = { showTimePicker = true },
           shape = RoundedCornerShape(14.dp),
-          color = GlassSurface,
-          border = BorderStroke(1.dp, GlassBorder),
+          color = colors.cardSurface,
+          border = BorderStroke(1.dp, colors.border),
           modifier = Modifier
             .minimumInteractiveComponentSize()
             .testTag("edit_entry_time"),
@@ -216,14 +266,14 @@ fun EntryDetailSheet(
             Icon(
               imageVector = Icons.Outlined.Schedule,
               contentDescription = "Change time",
-              tint = moodColor,
+              tint = accentColor,
               modifier = Modifier.size(16.dp),
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
               text = DateTimeUtils.formatTime(timestamp),
               style = MaterialTheme.typography.labelSmall,
-              color = TextPrimary,
+              color = colors.textPrimary,
             )
           }
         }
@@ -235,7 +285,7 @@ fun EntryDetailSheet(
       Text(
         text = "Note",
         style = MaterialTheme.typography.labelLarge,
-        color = TextSecondary,
+        color = colors.textSecondary,
       )
       Spacer(modifier = Modifier.height(8.dp))
       OutlinedTextField(
@@ -244,20 +294,20 @@ fun EntryDetailSheet(
         placeholder = {
           Text(
             text = "What's shaping your mood right now?",
-            color = TextMuted,
+            color = colors.textMuted,
           )
         },
         minLines = 3,
         maxLines = 6,
         shape = RoundedCornerShape(16.dp),
         colors = OutlinedTextFieldDefaults.colors(
-          focusedBorderColor = moodColor.copy(alpha = 0.7f),
-          unfocusedBorderColor = GlassBorderBright,
-          focusedContainerColor = GlassSurface,
-          unfocusedContainerColor = GlassSurface,
-          focusedTextColor = TextPrimary,
-          unfocusedTextColor = TextPrimary,
-          cursorColor = moodColor,
+          focusedBorderColor = accentColor.copy(alpha = 0.75f),
+          unfocusedBorderColor = colors.borderBright,
+          focusedContainerColor = colors.cardSurface,
+          unfocusedContainerColor = colors.cardSurface,
+          focusedTextColor = colors.textPrimary,
+          unfocusedTextColor = colors.textPrimary,
+          cursorColor = accentColor,
         ),
         modifier = Modifier
           .fillMaxWidth()
@@ -270,7 +320,7 @@ fun EntryDetailSheet(
       Text(
         text = "Tags & Emotions",
         style = MaterialTheme.typography.labelLarge,
-        color = TextSecondary,
+        color = colors.textSecondary,
       )
       Spacer(modifier = Modifier.height(8.dp))
 
@@ -293,13 +343,13 @@ fun EntryDetailSheet(
                 Text(
                   text = "#$tag",
                   style = MaterialTheme.typography.labelMedium,
-                  color = TextPrimary,
+                  color = colors.textPrimary,
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Icon(
                   imageVector = Icons.Outlined.Close,
                   contentDescription = "Remove tag $tag",
-                  tint = moodColor,
+                  tint = accentColor,
                   modifier = Modifier.size(14.dp),
                 )
               }
@@ -317,19 +367,19 @@ fun EntryDetailSheet(
         OutlinedTextField(
           value = newTagText,
           onValueChange = { newTagText = it },
-          placeholder = { Text("Add tag (e.g. calm, social)", color = TextMuted) },
+          placeholder = { Text("Add tag (e.g. calm, social)", color = colors.textMuted) },
           singleLine = true,
           shape = RoundedCornerShape(14.dp),
           keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
           keyboardActions = KeyboardActions(onDone = { addTag(newTagText) }),
           colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = moodColor.copy(alpha = 0.7f),
-            unfocusedBorderColor = GlassBorderBright,
-            focusedContainerColor = GlassSurface,
-            unfocusedContainerColor = GlassSurface,
-            focusedTextColor = TextPrimary,
-            unfocusedTextColor = TextPrimary,
-            cursorColor = moodColor,
+            focusedBorderColor = accentColor.copy(alpha = 0.75f),
+            unfocusedBorderColor = colors.borderBright,
+            focusedContainerColor = colors.cardSurface,
+            unfocusedContainerColor = colors.cardSurface,
+            focusedTextColor = colors.textPrimary,
+            unfocusedTextColor = colors.textPrimary,
+            cursorColor = accentColor,
           ),
           modifier = Modifier
             .weight(1f)
@@ -338,8 +388,8 @@ fun EntryDetailSheet(
         Surface(
           onClick = { addTag(newTagText) },
           shape = RoundedCornerShape(14.dp),
-          color = GlassSurfaceElevated,
-          border = BorderStroke(1.dp, GlassBorderBright),
+          color = colors.cardSurfaceElevated,
+          border = BorderStroke(1.dp, colors.borderBright),
           modifier = Modifier
             .minimumInteractiveComponentSize()
             .testTag("add_tag_button"),
@@ -351,7 +401,7 @@ fun EntryDetailSheet(
             Icon(
               imageVector = Icons.Outlined.Add,
               contentDescription = "Add tag",
-              tint = moodColor,
+              tint = accentColor,
             )
           }
         }
@@ -363,7 +413,7 @@ fun EntryDetailSheet(
         Text(
           text = "Suggestions",
           style = MaterialTheme.typography.bodySmall,
-          color = TextMuted,
+          color = colors.textMuted,
         )
         Spacer(modifier = Modifier.height(6.dp))
         FlowRow(
@@ -374,21 +424,223 @@ fun EntryDetailSheet(
             Box(
               modifier = Modifier
                 .clip(RoundedCornerShape(12.dp))
-                .background(GlassSurface)
+                .background(colors.cardSurface)
                 .clickable { addTag(suggestion) }
                 .padding(horizontal = 10.dp, vertical = 7.dp),
             ) {
               Text(
                 text = "+ $suggestion",
                 style = MaterialTheme.typography.labelMedium,
-                color = TextSecondary,
+                color = colors.textSecondary,
               )
             }
           }
         }
       }
 
-      Spacer(modifier = Modifier.height(24.dp))
+      Spacer(modifier = Modifier.height(18.dp))
+
+      // Collapsible Additional Context Section (collapsed by default)
+      Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = colors.cardSurface,
+        border = BorderStroke(1.dp, colors.borderBright),
+        modifier = Modifier.fillMaxWidth(),
+      ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .minimumInteractiveComponentSize()
+              .clickable { isContextExpanded = !isContextExpanded }
+              .padding(horizontal = 14.dp, vertical = 12.dp)
+              .testTag("additional_context_toggle"),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+          ) {
+            Column(modifier = Modifier.weight(1f)) {
+              Text(
+                text = "Additional Context",
+                style = MaterialTheme.typography.titleMedium,
+                color = colors.textPrimary,
+              )
+              Text(
+                text = contextSummary ?: "Optional sleep, wellbeing & physical activity",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (contextSummary != null) accentColor else colors.textMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+              )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(
+              imageVector = if (isContextExpanded) {
+                Icons.Outlined.KeyboardArrowUp
+              } else {
+                Icons.Outlined.KeyboardArrowDown
+              },
+              contentDescription = if (isContextExpanded) {
+                "Collapse Additional Context"
+              } else {
+                "Expand Additional Context"
+              },
+              tint = colors.textSecondary,
+            )
+          }
+
+          AnimatedVisibility(
+            visible = isContextExpanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut(),
+          ) {
+            Column(
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 14.dp, end = 14.dp, bottom = 14.dp),
+              verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+              HorizontalDivider(color = colors.border)
+
+              // Sleep Group
+              Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                  modifier = Modifier.fillMaxWidth(),
+                  horizontalArrangement = Arrangement.SpaceBetween,
+                  verticalAlignment = Alignment.CenterVertically,
+                ) {
+                  Text(
+                    text = "Sleep",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = colors.textSecondary,
+                  )
+                  Text(
+                    text = "Daily measurement",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textMuted,
+                  )
+                }
+
+                SleepDurationEditor(
+                  durationMinutes = sleepDurationMinutes,
+                  accent = accentColor,
+                  onUpdateDuration = { newMinutes ->
+                    sleepDurationMinutes = newMinutes
+                    sleepEdited = true
+                  },
+                )
+
+                RatingFiveSelector(
+                  label = "Sleep quality",
+                  selectedValue = sleepQuality,
+                  lowHint = "Poor",
+                  highHint = "Restful",
+                  accent = accentColor,
+                  tagPrefix = "sleep_quality",
+                  onSelect = { selected ->
+                    sleepQuality = if (sleepQuality == selected) null else selected
+                    sleepEdited = true
+                  },
+                )
+              }
+
+              HorizontalDivider(color = colors.border)
+
+              // Wellbeing Group
+              Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                  text = "Wellbeing",
+                  style = MaterialTheme.typography.labelLarge,
+                  color = colors.textSecondary,
+                )
+
+                RatingFiveSelector(
+                  label = "Energy level",
+                  selectedValue = energyLevel,
+                  lowHint = "Drained",
+                  highHint = "Vibrant",
+                  accent = accentColor,
+                  tagPrefix = "energy_level",
+                  onSelect = { selected ->
+                    energyLevel = if (energyLevel == selected) null else selected
+                  },
+                )
+
+                RatingFiveSelector(
+                  label = "Stress level",
+                  selectedValue = stressLevel,
+                  lowHint = "Calm",
+                  highHint = "High",
+                  accent = accentColor,
+                  tagPrefix = "stress_level",
+                  onSelect = { selected ->
+                    stressLevel = if (stressLevel == selected) null else selected
+                  },
+                )
+
+                RatingFiveSelector(
+                  label = "Anxiety level",
+                  selectedValue = anxietyLevel,
+                  lowHint = "At ease",
+                  highHint = "Intense",
+                  accent = accentColor,
+                  tagPrefix = "anxiety_level",
+                  onSelect = { selected ->
+                    anxietyLevel = if (anxietyLevel == selected) null else selected
+                  },
+                )
+              }
+
+              HorizontalDivider(color = colors.border)
+
+              // Physical Activity Group
+              Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                  text = "Physical Activity",
+                  style = MaterialTheme.typography.labelLarge,
+                  color = colors.textSecondary,
+                )
+                FlowRow(
+                  horizontalArrangement = Arrangement.spacedBy(8.dp),
+                  verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                  PhysicalActivityLevel.entries.forEach { level ->
+                    val selected = physicalActivity == level
+                    Surface(
+                      onClick = {
+                        physicalActivity = if (selected) null else level
+                      },
+                      shape = RoundedCornerShape(12.dp),
+                      color = if (selected) accentColor.copy(alpha = 0.20f) else colors.cardSurfaceElevated,
+                      border = BorderStroke(
+                        1.dp,
+                        if (selected) accentColor.copy(alpha = 0.7f) else colors.border,
+                      ),
+                      modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("activity_${level.name.lowercase()}"),
+                    ) {
+                      Box(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                      ) {
+                        Text(
+                          text = level.label,
+                          style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                          ),
+                          color = if (selected) accentColor else colors.textSecondary,
+                        )
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      Spacer(modifier = Modifier.height(22.dp))
 
       Button(
         onClick = {
@@ -398,12 +650,19 @@ fun EntryDetailSheet(
               timestamp = timestamp,
               note = note,
               tags = tags,
+              sleepDurationMinutes = sleepDurationMinutes,
+              sleepQuality = sleepQuality,
+              energyLevel = energyLevel,
+              stressLevel = stressLevel,
+              anxietyLevel = anxietyLevel,
+              physicalActivity = physicalActivity,
             ),
+            sleepEdited,
           )
         },
         colors = ButtonDefaults.buttonColors(
           containerColor = moodColor,
-          contentColor = ObsidianBg,
+          contentColor = Color(0xFF07080C),
         ),
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier
@@ -423,13 +682,13 @@ fun EntryDetailSheet(
     MoodyDatePickerDialog(
       initialTimestampMillis = timestamp,
       onConfirmDateUtcMillis = { utcMillis ->
-        pendingDateUtcMillis = utcMillis
         val cal = Calendar.getInstance().apply { timeInMillis = timestamp }
         timestamp = DateTimeUtils.combineDateAndTime(
           dateUtcMillis = utcMillis,
           hourOfDay = cal.get(Calendar.HOUR_OF_DAY),
           minute = cal.get(Calendar.MINUTE),
         )
+        syncSleepForDateIfUnedited(timestamp)
         showDatePicker = false
         showTimePicker = true
       },
@@ -443,6 +702,7 @@ fun EntryDetailSheet(
       onConfirmTime = { hour, minute ->
         val utcDate = DateTimeUtils.toUtcDatePickerMillis(timestamp)
         timestamp = DateTimeUtils.combineDateAndTime(utcDate, hour, minute)
+        syncSleepForDateIfUnedited(timestamp)
         showTimePicker = false
       },
       onDismiss = { showTimePicker = false },
@@ -452,14 +712,14 @@ fun EntryDetailSheet(
   if (showDeleteConfirmation) {
     AlertDialog(
       onDismissRequest = { showDeleteConfirmation = false },
-      containerColor = GlassSurfaceElevated,
+      containerColor = colors.cardSurfaceElevated,
       title = {
-        Text("Delete this entry?", color = TextPrimary)
+        Text("Delete this entry?", color = colors.textPrimary)
       },
       text = {
         Text(
           text = "This mood log from ${DateTimeUtils.formatDateAndTime(timestamp)} will be permanently removed.",
-          color = TextSecondary,
+          color = colors.textSecondary,
         )
       },
       confirmButton = {
@@ -470,14 +730,239 @@ fun EntryDetailSheet(
           },
           modifier = Modifier.testTag("confirm_delete_entry"),
         ) {
-          Text("Delete", color = DangerRose)
+          Text("Delete", color = colors.danger)
         }
       },
       dismissButton = {
         TextButton(onClick = { showDeleteConfirmation = false }) {
-          Text("Cancel", color = TextSecondary)
+          Text("Cancel", color = colors.textSecondary)
         }
       },
     )
+  }
+}
+
+@Composable
+private fun SleepDurationEditor(
+  durationMinutes: Int?,
+  accent: Color,
+  onUpdateDuration: (Int?) -> Unit,
+) {
+  val colors = MoodyTheme.colors
+  val hours = durationMinutes?.div(60)
+  val minutes = durationMinutes?.rem(60)
+
+  Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Text(
+        text = "Sleep duration",
+        style = MaterialTheme.typography.bodyMedium,
+        color = colors.textPrimary,
+      )
+      Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        Text(
+          text = if (durationMinutes != null) "${hours}h ${minutes}m" else "Not set",
+          style = MaterialTheme.typography.labelMedium,
+          color = if (durationMinutes != null) accent else colors.textMuted,
+          modifier = Modifier.testTag("sleep_duration_readout"),
+        )
+        if (durationMinutes != null) {
+          Text(
+            text = "Clear",
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.textSecondary,
+            modifier = Modifier
+              .clip(RoundedCornerShape(8.dp))
+              .clickable { onUpdateDuration(null) }
+              .padding(horizontal = 6.dp, vertical = 4.dp)
+              .testTag("clear_sleep_duration"),
+          )
+        }
+      }
+    }
+
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+      CompactStepperPill(
+        label = "Hours",
+        valueText = if (hours != null) "${hours}h" else "--",
+        onMinus = {
+          val cur = durationMinutes ?: (7 * 60)
+          val nextH = ((cur / 60) - 1).coerceAtLeast(0)
+          onUpdateDuration(nextH * 60 + (cur % 60))
+        },
+        onPlus = {
+          val cur = durationMinutes ?: (7 * 60)
+          val nextH = ((cur / 60) + 1).coerceAtMost(23)
+          onUpdateDuration(nextH * 60 + (cur % 60))
+        },
+        minusTag = "sleep_hours_minus",
+        plusTag = "sleep_hours_plus",
+        modifier = Modifier.weight(1f),
+      )
+
+      CompactStepperPill(
+        label = "Minutes",
+        valueText = if (minutes != null) "${minutes}m" else "--",
+        onMinus = {
+          val cur = durationMinutes ?: (7 * 60)
+          val h = cur / 60
+          val m = cur % 60
+          val nextM = if (m >= 5) ((m - 1) / 5) * 5 else 55
+          onUpdateDuration(h * 60 + nextM)
+        },
+        onPlus = {
+          val cur = durationMinutes ?: (7 * 60)
+          val h = cur / 60
+          val m = cur % 60
+          val nextM = ((m / 5) + 1) * 5 % 60
+          onUpdateDuration(h * 60 + nextM)
+        },
+        minusTag = "sleep_minutes_minus",
+        plusTag = "sleep_minutes_plus",
+        modifier = Modifier.weight(1f),
+      )
+    }
+  }
+}
+
+@Composable
+private fun CompactStepperPill(
+  label: String,
+  valueText: String,
+  onMinus: () -> Unit,
+  onPlus: () -> Unit,
+  minusTag: String,
+  plusTag: String,
+  modifier: Modifier = Modifier,
+) {
+  val colors = MoodyTheme.colors
+  Surface(
+    shape = RoundedCornerShape(14.dp),
+    color = colors.cardSurfaceElevated,
+    border = BorderStroke(1.dp, colors.border),
+    modifier = modifier,
+  ) {
+    Row(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 4.dp, vertical = 4.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+      IconButton(
+        onClick = onMinus,
+        modifier = Modifier
+          .size(40.dp)
+          .testTag(minusTag),
+      ) {
+        Icon(
+          imageVector = Icons.Outlined.Remove,
+          contentDescription = "Decrease $label",
+          tint = colors.textSecondary,
+          modifier = Modifier.size(18.dp),
+        )
+      }
+
+      Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+          text = valueText,
+          style = MaterialTheme.typography.titleMedium,
+          color = colors.textPrimary,
+          textAlign = TextAlign.Center,
+        )
+        Text(
+          text = label,
+          style = MaterialTheme.typography.labelSmall,
+          color = colors.textMuted,
+        )
+      }
+
+      IconButton(
+        onClick = onPlus,
+        modifier = Modifier
+          .size(40.dp)
+          .testTag(plusTag),
+      ) {
+        Icon(
+          imageVector = Icons.Outlined.Add,
+          contentDescription = "Increase $label",
+          tint = colors.textSecondary,
+          modifier = Modifier.size(18.dp),
+        )
+      }
+    }
+  }
+}
+
+@Composable
+private fun RatingFiveSelector(
+  label: String,
+  selectedValue: Int?,
+  lowHint: String,
+  highHint: String,
+  accent: Color,
+  tagPrefix: String,
+  onSelect: (Int) -> Unit,
+) {
+  val colors = MoodyTheme.colors
+  Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Text(
+        text = label,
+        style = MaterialTheme.typography.bodyMedium,
+        color = colors.textPrimary,
+      )
+      Text(
+        text = selectedValue?.let { "$it / 5" } ?: "$lowHint – $highHint",
+        style = MaterialTheme.typography.labelSmall,
+        color = if (selectedValue != null) accent else colors.textMuted,
+      )
+    }
+
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      (1..5).forEach { value ->
+        val isSelected = selectedValue == value
+        Surface(
+          onClick = { onSelect(value) },
+          shape = RoundedCornerShape(12.dp),
+          color = if (isSelected) accent.copy(alpha = 0.22f) else colors.cardSurfaceElevated,
+          border = BorderStroke(
+            1.dp,
+            if (isSelected) accent.copy(alpha = 0.75f) else colors.border,
+          ),
+          modifier = Modifier
+            .weight(1f)
+            .height(42.dp)
+            .testTag("${tagPrefix}_$value"),
+        ) {
+          Box(contentAlignment = Alignment.Center) {
+            Text(
+              text = value.toString(),
+              style = MaterialTheme.typography.labelLarge.copy(
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+              ),
+              color = if (isSelected) accent else colors.textSecondary,
+            )
+          }
+        }
+      }
+    }
   }
 }

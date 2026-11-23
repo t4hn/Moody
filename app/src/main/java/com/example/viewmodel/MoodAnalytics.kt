@@ -1,8 +1,10 @@
 package com.example.viewmodel
 
+import com.example.model.DailyContext
 import com.example.model.MoodEntry
 import com.example.util.DateTimeUtils
 import java.util.Calendar
+import java.util.TimeZone
 import kotlin.math.roundToInt
 
 enum class InsightTimeRange(val label: String) {
@@ -54,6 +56,30 @@ data class MoodStats(
   val totalEntries: Int,
   val currentStreakDays: Int,
   val distinctTagCount: Int,
+)
+
+data class SleepQualityPoint(
+  val dayStartMillis: Long,
+  val label: String,
+  val sleepQuality: Int?,
+)
+
+data class WeekdaySleepAverage(
+  val weekdayIndex: Int,
+  val weekdayLabel: String,
+  val shortLabel: String,
+  val averageQuality: Float?,
+  val nightCount: Int,
+)
+
+data class SleepAnalyticsSummary(
+  val averageQuality: Float? = null,
+  val qualityNightCount: Int = 0,
+  val averageDurationMinutes: Int? = null,
+  val durationNightCount: Int = 0,
+  val qualityHistory: List<SleepQualityPoint> = emptyList(),
+  val weekdayAverages: List<WeekdaySleepAverage> = emptyList(),
+  val hasAnySleepData: Boolean = false,
 )
 
 object MoodAnalytics {
@@ -267,5 +293,149 @@ object MoodAnalytics {
     if (value == null) return "—"
     val rounded = (value * 10f).roundToInt() / 10f
     return String.format(java.util.Locale.US, "%.1f", rounded)
+  }
+
+  fun formatSleepDuration(minutes: Int?): String {
+    if (minutes == null || minutes < 0) return "—"
+    val hours = minutes / 60
+    val mins = minutes % 60
+    return "${hours}h ${mins}m"
+  }
+
+  private data class ParsedDailySleep(
+    val dayStartMillis: Long,
+    val sleepDurationMinutes: Int?,
+    val sleepQuality: Int?,
+    val updatedAt: Long,
+  )
+
+  private val weekdayDefinitions = listOf(
+    "Monday" to "Mon",
+    "Tuesday" to "Tue",
+    "Wednesday" to "Wed",
+    "Thursday" to "Thu",
+    "Friday" to "Fri",
+    "Saturday" to "Sat",
+    "Sunday" to "Sun",
+  )
+
+  fun computeSleepAnalytics(
+    dailyContexts: Collection<DailyContext>,
+    range: InsightTimeRange,
+    nowMillis: Long = System.currentTimeMillis(),
+    timeZone: TimeZone = TimeZone.getDefault(),
+  ): SleepAnalyticsSummary {
+    val todayStart = DateTimeUtils.startOfDayMillis(nowMillis, timeZone)
+
+    // Normalize and deduplicate to at most one record per local calendar day
+    val deduplicatedByDay = LinkedHashMap<Long, ParsedDailySleep>()
+    dailyContexts.forEach { ctx ->
+      val dayStart = DateTimeUtils.parseDayKeyStartMillisOrNull(ctx.dayKey, timeZone) ?: return@forEach
+      val quality = ctx.sleepQuality?.takeIf { it in 1..5 }
+      val duration = ctx.sleepDurationMinutes?.takeIf { it >= 0 }
+      if (quality == null && duration == null) return@forEach
+
+      val existing = deduplicatedByDay[dayStart]
+      if (existing == null || ctx.updatedAt >= existing.updatedAt) {
+        deduplicatedByDay[dayStart] = ParsedDailySleep(
+          dayStartMillis = dayStart,
+          sleepDurationMinutes = duration,
+          sleepQuality = quality,
+          updatedAt = ctx.updatedAt,
+        )
+      }
+    }
+
+    val filtered = when (range) {
+      InsightTimeRange.DAY -> {
+        deduplicatedByDay.values.filter { it.dayStartMillis == todayStart }
+      }
+      InsightTimeRange.WEEK -> {
+        val start = DateTimeUtils.daysAgoStartMillis(6, nowMillis, timeZone)
+        deduplicatedByDay.values.filter { it.dayStartMillis in start..todayStart }
+      }
+      InsightTimeRange.MONTH -> {
+        val start = DateTimeUtils.daysAgoStartMillis(29, nowMillis, timeZone)
+        deduplicatedByDay.values.filter { it.dayStartMillis in start..todayStart }
+      }
+      InsightTimeRange.ALL -> {
+        deduplicatedByDay.values.toList()
+      }
+    }.sortedBy { it.dayStartMillis }
+
+    val qualityValues = filtered.mapNotNull { it.sleepQuality }
+    val qualityNightCount = qualityValues.size
+    val averageQuality = if (qualityNightCount > 0) qualityValues.average().toFloat() else null
+
+    val durationValues = filtered.mapNotNull { it.sleepDurationMinutes }
+    val durationNightCount = durationValues.size
+    val averageDurationMinutes = if (durationNightCount > 0) durationValues.average().roundToInt() else null
+
+    val recordedQualityByDay = filtered
+      .filter { it.sleepQuality != null }
+      .associateBy { it.dayStartMillis }
+
+    val qualityHistory = if (recordedQualityByDay.isEmpty()) {
+      emptyList()
+    } else {
+      val (spanStart, spanEnd) = when (range) {
+        InsightTimeRange.DAY -> todayStart to todayStart
+        InsightTimeRange.WEEK -> DateTimeUtils.daysAgoStartMillis(6, nowMillis, timeZone) to todayStart
+        InsightTimeRange.MONTH -> DateTimeUtils.daysAgoStartMillis(29, nowMillis, timeZone) to todayStart
+        InsightTimeRange.ALL -> recordedQualityByDay.keys.min() to recordedQualityByDay.keys.max()
+      }
+
+      val approxDays = ((spanEnd - spanStart) / 86_400_000L).coerceAtLeast(0L)
+      if (approxDays > 1095L) {
+        recordedQualityByDay.keys.sorted().map { dayStart ->
+          SleepQualityPoint(
+            dayStartMillis = dayStart,
+            label = DateTimeUtils.formatShortDate(dayStart, timeZone),
+            sleepQuality = recordedQualityByDay[dayStart]?.sleepQuality,
+          )
+        }
+      } else {
+        buildList {
+          var cursor = spanStart
+          var guard = 0
+          while (cursor <= spanEnd && guard < 1200) {
+            add(
+              SleepQualityPoint(
+                dayStartMillis = cursor,
+                label = DateTimeUtils.formatShortDate(cursor, timeZone),
+                sleepQuality = recordedQualityByDay[cursor]?.sleepQuality,
+              ),
+            )
+            cursor = DateTimeUtils.nextDayStartMillis(cursor, timeZone)
+            guard++
+          }
+        }
+      }
+    }
+
+    val groupedByWeekday = recordedQualityByDay.values.groupBy {
+      DateTimeUtils.weekdayMondayFirstIndex(it.dayStartMillis, timeZone)
+    }
+
+    val weekdayAverages = weekdayDefinitions.mapIndexed { idx, (fullName, shortName) ->
+      val values = groupedByWeekday[idx].orEmpty().mapNotNull { it.sleepQuality }
+      WeekdaySleepAverage(
+        weekdayIndex = idx,
+        weekdayLabel = fullName,
+        shortLabel = shortName,
+        averageQuality = if (values.isNotEmpty()) values.average().toFloat() else null,
+        nightCount = values.size,
+      )
+    }
+
+    return SleepAnalyticsSummary(
+      averageQuality = averageQuality,
+      qualityNightCount = qualityNightCount,
+      averageDurationMinutes = averageDurationMinutes,
+      durationNightCount = durationNightCount,
+      qualityHistory = qualityHistory,
+      weekdayAverages = weekdayAverages,
+      hasAnySleepData = qualityNightCount > 0 || durationNightCount > 0,
+    )
   }
 }

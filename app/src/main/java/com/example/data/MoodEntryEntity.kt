@@ -2,7 +2,9 @@ package com.example.data
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.example.model.DailyContext
 import com.example.model.MoodEntry
+import com.example.model.PhysicalActivityLevel
 import org.json.JSONArray
 
 @Entity(tableName = "mood_entries")
@@ -12,19 +14,27 @@ data class MoodEntryEntity(
   val timestamp: Long,
   val note: String,
   val tagsJson: String,
-  val isDemo: Boolean,
   val createdAt: Long,
   val updatedAt: Long,
+  val energyLevel: Int? = null,
+  val stressLevel: Int? = null,
+  val anxietyLevel: Int? = null,
+  val physicalActivity: String? = null,
 )
 
-fun MoodEntryEntity.toDomain(): MoodEntry =
+fun MoodEntryEntity.toDomain(dailyContext: DailyContext? = null): MoodEntry =
   MoodEntry(
     id = id,
     mood = mood.coerceIn(1, 5),
     timestamp = timestamp,
     note = note,
     tags = decodeTags(tagsJson),
-    isDemo = isDemo,
+    sleepDurationMinutes = dailyContext?.sleepDurationMinutes,
+    sleepQuality = dailyContext?.sleepQuality,
+    energyLevel = energyLevel?.takeIf { it in 1..5 },
+    stressLevel = stressLevel?.takeIf { it in 1..5 },
+    anxietyLevel = anxietyLevel?.takeIf { it in 1..5 },
+    physicalActivity = PhysicalActivityLevel.fromNameOrNull(physicalActivity),
     createdAt = createdAt,
     updatedAt = updatedAt,
   )
@@ -36,9 +46,12 @@ fun MoodEntry.toEntity(): MoodEntryEntity =
     timestamp = timestamp,
     note = note,
     tagsJson = encodeTags(tags),
-    isDemo = isDemo,
     createdAt = createdAt,
     updatedAt = updatedAt,
+    energyLevel = energyLevel?.coerceIn(1, 5),
+    stressLevel = stressLevel?.coerceIn(1, 5),
+    anxietyLevel = anxietyLevel?.coerceIn(1, 5),
+    physicalActivity = physicalActivity?.name,
   )
 
 private fun encodeTags(tags: List<String>): String {

@@ -50,17 +50,10 @@ import com.example.ui.components.MoodFaceSelectorRow
 import com.example.ui.components.MoodyDatePickerDialog
 import com.example.ui.components.MoodyTimePickerDialog
 import com.example.ui.components.SectionHeader
-import com.example.ui.theme.AccentPrimary
-import com.example.ui.theme.GlassBorder
-import com.example.ui.theme.GlassSurfaceElevated
-import com.example.ui.theme.MoodColor2
-import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.MoodyTheme
 import com.example.ui.theme.moodColorInterpolated
 import com.example.util.DateTimeUtils
 import com.example.viewmodel.MoodyUiState
-import java.util.Calendar
 
 @Composable
 fun TodayScreen(
@@ -70,6 +63,7 @@ fun TodayScreen(
   onOpenEntry: (MoodEntry) -> Unit,
   modifier: Modifier = Modifier,
 ) {
+  val colors = MoodyTheme.colors
   var pulseTrigger by remember { mutableIntStateOf(0) }
   var showDatePicker by remember { mutableStateOf(false) }
   var showTimePicker by remember { mutableStateOf(false) }
@@ -88,7 +82,7 @@ fun TodayScreen(
   val todayAvg = remember(uiState.todayEntries) {
     uiState.todayEntries.takeIf { it.isNotEmpty() }?.map { it.mood }?.average()?.toFloat()
   }
-  val ambientColor = todayAvg?.let { moodColorInterpolated(it) } ?: MoodColor2
+  val ambientColor = todayAvg?.let { moodColorInterpolated(it) } ?: colors.accentPrimary
 
   Box(
     modifier = modifier
@@ -96,7 +90,7 @@ fun TodayScreen(
       .background(
         Brush.verticalGradient(
           colors = listOf(
-            ambientColor.copy(alpha = 0.14f),
+            ambientColor.copy(alpha = if (colors.isDark) 0.14f else 0.10f),
             Color.Transparent,
           ),
           startY = 0f,
@@ -123,19 +117,19 @@ fun TodayScreen(
             Text(
               text = "MOODY",
               style = MaterialTheme.typography.labelSmall,
-              color = ambientColor,
+              color = if (colors.isDark) ambientColor else colors.accentPrimary,
             )
             Text(
               text = DateTimeUtils.formatHeaderDate(now),
               style = MaterialTheme.typography.labelSmall,
-              color = TextSecondary,
+              color = colors.textSecondary,
             )
           }
           Spacer(modifier = Modifier.height(6.dp))
           Text(
             text = greeting,
             style = MaterialTheme.typography.displaySmall,
-            color = TextPrimary,
+            color = colors.textPrimary,
           )
         }
       }
@@ -155,13 +149,13 @@ fun TodayScreen(
             Text(
               text = "How are you feeling?",
               style = MaterialTheme.typography.headlineSmall,
-              color = TextPrimary,
+              color = colors.textPrimary,
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
               text = "One tap logs instantly. Details can wait.",
               style = MaterialTheme.typography.bodySmall,
-              color = TextSecondary,
+              color = colors.textSecondary,
             )
 
             Spacer(modifier = Modifier.height(18.dp))
@@ -189,10 +183,14 @@ fun TodayScreen(
               Surface(
                 onClick = { showDatePicker = true },
                 shape = RoundedCornerShape(14.dp),
-                color = if (customTs != null) AccentPrimary.copy(alpha = 0.14f) else GlassSurfaceElevated.copy(alpha = 0.7f),
+                color = if (customTs != null) {
+                  colors.accentPrimary.copy(alpha = 0.14f)
+                } else {
+                  colors.cardSurfaceElevated.copy(alpha = 0.7f)
+                },
                 border = BorderStroke(
                   1.dp,
-                  if (customTs != null) AccentPrimary.copy(alpha = 0.45f) else GlassBorder,
+                  if (customTs != null) colors.accentPrimary.copy(alpha = 0.45f) else colors.border,
                 ),
                 modifier = Modifier
                   .minimumInteractiveComponentSize()
@@ -205,7 +203,7 @@ fun TodayScreen(
                   Icon(
                     imageVector = Icons.Outlined.Schedule,
                     contentDescription = "Change entry time",
-                    tint = if (customTs != null) AccentPrimary else TextSecondary,
+                    tint = if (customTs != null) colors.accentPrimary else colors.textSecondary,
                     modifier = Modifier.size(16.dp),
                   )
                   Spacer(modifier = Modifier.width(8.dp))
@@ -216,7 +214,7 @@ fun TodayScreen(
                       "Change time · Now"
                     },
                     style = MaterialTheme.typography.labelMedium,
-                    color = if (customTs != null) AccentPrimary else TextSecondary,
+                    color = if (customTs != null) colors.accentPrimary else colors.textSecondary,
                   )
                 }
               }
@@ -231,7 +229,7 @@ fun TodayScreen(
                   Icon(
                     imageVector = Icons.Outlined.Close,
                     contentDescription = "Reset time to now",
-                    tint = TextSecondary,
+                    tint = colors.textSecondary,
                   )
                 }
               }
@@ -248,13 +246,13 @@ fun TodayScreen(
           trailing = {
             Surface(
               shape = RoundedCornerShape(12.dp),
-              color = GlassSurfaceElevated,
-              border = BorderStroke(1.dp, GlassBorder),
+              color = colors.cardSurfaceElevated,
+              border = BorderStroke(1.dp, colors.border),
             ) {
               Text(
                 text = "${uiState.todayEntries.size} ${if (uiState.todayEntries.size == 1) "entry" else "entries"}",
                 style = MaterialTheme.typography.labelSmall,
-                color = TextSecondary,
+                color = colors.textSecondary,
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
               )
             }
@@ -280,20 +278,20 @@ fun TodayScreen(
                 Icon(
                   imageVector = Icons.Outlined.NightsStay,
                   contentDescription = null,
-                  tint = ambientColor,
+                  tint = if (colors.isDark) ambientColor else colors.accentPrimary,
                 )
               }
               Spacer(modifier = Modifier.height(12.dp))
               Text(
                 text = "Quiet slate today",
                 style = MaterialTheme.typography.titleMedium,
-                color = TextPrimary,
+                color = colors.textPrimary,
               )
               Spacer(modifier = Modifier.height(4.dp))
               Text(
                 text = "Tap any mood face above to capture your current state.",
                 style = MaterialTheme.typography.bodySmall,
-                color = TextMuted,
+                color = colors.textMuted,
                 textAlign = TextAlign.Center,
               )
             }
@@ -326,7 +324,7 @@ fun TodayScreen(
                     .width(1.5.dp)
                     .height(64.dp)
                     .padding(top = 6.dp)
-                    .background(GlassBorder),
+                    .background(colors.border),
                 )
               }
             }

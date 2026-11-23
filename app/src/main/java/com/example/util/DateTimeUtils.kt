@@ -8,8 +8,11 @@ import java.util.TimeZone
 
 object DateTimeUtils {
 
-  fun startOfDayMillis(timestampMillis: Long): Long {
-    val cal = Calendar.getInstance().apply {
+  fun startOfDayMillis(
+    timestampMillis: Long,
+    timeZone: TimeZone = TimeZone.getDefault(),
+  ): Long {
+    val cal = Calendar.getInstance(timeZone).apply {
       timeInMillis = timestampMillis
       set(Calendar.HOUR_OF_DAY, 0)
       set(Calendar.MINUTE, 0)
@@ -30,12 +33,67 @@ object DateTimeUtils {
     return cal.timeInMillis
   }
 
-  fun daysAgoStartMillis(daysAgo: Int, nowMillis: Long = System.currentTimeMillis()): Long {
-    val cal = Calendar.getInstance().apply {
-      timeInMillis = startOfDayMillis(nowMillis)
+  fun daysAgoStartMillis(
+    daysAgo: Int,
+    nowMillis: Long = System.currentTimeMillis(),
+    timeZone: TimeZone = TimeZone.getDefault(),
+  ): Long {
+    val cal = Calendar.getInstance(timeZone).apply {
+      timeInMillis = startOfDayMillis(nowMillis, timeZone)
       add(Calendar.DAY_OF_YEAR, -daysAgo)
     }
     return cal.timeInMillis
+  }
+
+  fun nextDayStartMillis(
+    dayStartMillis: Long,
+    timeZone: TimeZone = TimeZone.getDefault(),
+  ): Long {
+    val cal = Calendar.getInstance(timeZone).apply {
+      timeInMillis = startOfDayMillis(dayStartMillis, timeZone)
+      add(Calendar.DAY_OF_YEAR, 1)
+      set(Calendar.HOUR_OF_DAY, 0)
+      set(Calendar.MINUTE, 0)
+      set(Calendar.SECOND, 0)
+      set(Calendar.MILLISECOND, 0)
+    }
+    return cal.timeInMillis
+  }
+
+  fun parseDayKeyStartMillisOrNull(
+    dayKey: String,
+    timeZone: TimeZone = TimeZone.getDefault(),
+  ): Long? {
+    val parts = dayKey.trim().split("-")
+    if (parts.size != 3) return null
+    val year = parts[0].toIntOrNull() ?: return null
+    val month = parts[1].toIntOrNull() ?: return null
+    val day = parts[2].toIntOrNull() ?: return null
+    if (month !in 1..12 || day !in 1..31) return null
+
+    val cal = Calendar.getInstance(timeZone).apply {
+      isLenient = false
+      set(Calendar.YEAR, year)
+      set(Calendar.MONTH, month - 1)
+      set(Calendar.DAY_OF_MONTH, day)
+      set(Calendar.HOUR_OF_DAY, 0)
+      set(Calendar.MINUTE, 0)
+      set(Calendar.SECOND, 0)
+      set(Calendar.MILLISECOND, 0)
+    }
+    return try {
+      cal.timeInMillis
+    } catch (_: IllegalArgumentException) {
+      null
+    }
+  }
+
+  fun weekdayMondayFirstIndex(
+    timestampMillis: Long,
+    timeZone: TimeZone = TimeZone.getDefault(),
+  ): Int {
+    val cal = Calendar.getInstance(timeZone).apply { timeInMillis = timestampMillis }
+    return (cal.get(Calendar.DAY_OF_WEEK) + 5) % 7
   }
 
   fun dayKey(timestampMillis: Long): Long = startOfDayMillis(timestampMillis)
@@ -50,8 +108,13 @@ object DateTimeUtils {
     return sdf.format(Date(timestampMillis))
   }
 
-  fun formatShortDate(timestampMillis: Long): String {
-    val sdf = SimpleDateFormat("MMM d", Locale.getDefault())
+  fun formatShortDate(
+    timestampMillis: Long,
+    timeZone: TimeZone = TimeZone.getDefault(),
+  ): String {
+    val sdf = SimpleDateFormat("MMM d", Locale.getDefault()).apply {
+      this.timeZone = timeZone
+    }
     return sdf.format(Date(timestampMillis))
   }
 
@@ -80,8 +143,13 @@ object DateTimeUtils {
     }
   }
 
-  fun formatFileDate(nowMillis: Long = System.currentTimeMillis()): String {
-    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+  fun formatFileDate(
+    nowMillis: Long = System.currentTimeMillis(),
+    timeZone: TimeZone = TimeZone.getDefault(),
+  ): String {
+    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+      this.timeZone = timeZone
+    }
     return sdf.format(Date(nowMillis))
   }
 

@@ -3,9 +3,11 @@ package com.example.data
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.example.ui.theme.AppearanceMode
+import com.example.ui.theme.MoodyPalette
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -14,15 +16,29 @@ private val Context.moodyDataStore: DataStore<Preferences> by preferencesDataSto
 class MoodyPreferences(private val context: Context) {
 
   private object Keys {
-    val DEMO_SEEDED = booleanPreferencesKey("demo_seeded")
+    val APPEARANCE_MODE = stringPreferencesKey("appearance_mode")
+    val COLOR_PALETTE = stringPreferencesKey("color_palette")
   }
 
-  val hasSeededDemo: Flow<Boolean> =
-    context.moodyDataStore.data.map { prefs -> prefs[Keys.DEMO_SEEDED] ?: false }
+  val appearanceMode: Flow<AppearanceMode> =
+    context.moodyDataStore.data.map { prefs ->
+      AppearanceMode.fromNameOrDefault(prefs[Keys.APPEARANCE_MODE])
+    }
 
-  suspend fun markDemoSeeded() {
+  val colorPalette: Flow<MoodyPalette> =
+    context.moodyDataStore.data.map { prefs ->
+      MoodyPalette.fromNameOrDefault(prefs[Keys.COLOR_PALETTE])
+    }
+
+  suspend fun setAppearanceMode(mode: AppearanceMode) {
     context.moodyDataStore.edit { prefs ->
-      prefs[Keys.DEMO_SEEDED] = true
+      prefs[Keys.APPEARANCE_MODE] = mode.name
+    }
+  }
+
+  suspend fun setColorPalette(palette: MoodyPalette) {
+    context.moodyDataStore.edit { prefs ->
+      prefs[Keys.COLOR_PALETTE] = palette.name
     }
   }
 }

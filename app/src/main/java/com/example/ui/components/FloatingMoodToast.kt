@@ -28,9 +28,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.example.ui.theme.GlassSurfaceElevated
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.MoodyTheme
 import com.example.viewmodel.QuickLogToastState
 
 @Composable
@@ -40,6 +38,7 @@ fun FloatingMoodToast(
   onUndo: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
+  val colors = MoodyTheme.colors
   AnimatedVisibility(
     visible = toastState != null,
     enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
@@ -50,8 +49,8 @@ fun FloatingMoodToast(
       val moodColor = toastState.entry.moodLevel.color
       Surface(
         shape = RoundedCornerShape(18.dp),
-        color = GlassSurfaceElevated.copy(alpha = 0.96f),
-        border = BorderStroke(1.dp, moodColor.copy(alpha = 0.45f)),
+        color = colors.cardSurfaceElevated.copy(alpha = 0.97f),
+        border = BorderStroke(1.dp, moodColor.copy(alpha = 0.50f)),
         shadowElevation = 12.dp,
         modifier = Modifier
           .fillMaxWidth()
@@ -78,7 +77,7 @@ fun FloatingMoodToast(
             Text(
               text = toastState.message,
               style = MaterialTheme.typography.bodyMedium,
-              color = TextPrimary,
+              color = colors.textPrimary,
               maxLines = 1,
               overflow = TextOverflow.Ellipsis,
             )
@@ -92,7 +91,7 @@ fun FloatingMoodToast(
               Text(
                 text = "Add details",
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                color = moodColor,
+                color = if (colors.isDark) moodColor else colors.accentPrimary,
               )
             }
             TextButton(
@@ -102,7 +101,7 @@ fun FloatingMoodToast(
               Text(
                 text = "Undo",
                 style = MaterialTheme.typography.labelLarge,
-                color = TextSecondary,
+                color = colors.textSecondary,
               )
             }
           }

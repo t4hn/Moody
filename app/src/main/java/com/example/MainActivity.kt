@@ -7,6 +7,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
@@ -20,11 +21,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.AutoGraph
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.AddCircleOutline
 import androidx.compose.material.icons.outlined.AutoGraph
 import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -37,10 +38,12 @@ import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -57,20 +60,15 @@ import com.example.ui.screens.DataScreen
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.InsightsScreen
 import com.example.ui.screens.TodayScreen
-import com.example.ui.theme.AccentPrimary
-import com.example.ui.theme.CharcoalBase
-import com.example.ui.theme.GlassBorder
-import com.example.ui.theme.GlassSurfaceElevated
+import com.example.ui.theme.AppearanceMode
 import com.example.ui.theme.MoodyTheme
-import com.example.ui.theme.ObsidianBg
-import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
+import com.example.viewmodel.MoodyUiState
 import com.example.viewmodel.MoodyViewModel
 
 const val ROUTE_TODAY = "today"
 const val ROUTE_INSIGHTS = "insights"
 const val ROUTE_HISTORY = "history"
-const val ROUTE_DATA = "data"
+const val ROUTE_SETTINGS = "settings"
 
 private data class MoodyTab(
   val route: String,
@@ -83,7 +81,7 @@ private val moodyTabs = listOf(
   MoodyTab(ROUTE_TODAY, "Today", Icons.Filled.AddCircle, Icons.Outlined.AddCircleOutline),
   MoodyTab(ROUTE_INSIGHTS, "Insights", Icons.Filled.AutoGraph, Icons.Outlined.AutoGraph),
   MoodyTab(ROUTE_HISTORY, "History", Icons.Filled.History, Icons.Outlined.History),
-  MoodyTab(ROUTE_DATA, "Data", Icons.Filled.Storage, Icons.Outlined.Storage),
+  MoodyTab(ROUTE_SETTINGS, "Settings", Icons.Filled.Settings, Icons.Outlined.Settings),
 )
 
 class MainActivity : ComponentActivity() {
@@ -94,9 +92,7 @@ class MainActivity : ComponentActivity() {
       navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
     )
     setContent {
-      MoodyTheme {
-        MoodyApp()
-      }
+      MoodyApp()
     }
   }
 }
@@ -106,6 +102,46 @@ fun MoodyApp(
   viewModel: MoodyViewModel = viewModel(),
 ) {
   val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+  val isDark = when (uiState.appearanceMode) {
+    AppearanceMode.SYSTEM -> isSystemInDarkTheme()
+    AppearanceMode.LIGHT -> false
+    AppearanceMode.DARK -> true
+  }
+
+  val activity = LocalContext.current as? ComponentActivity
+  DisposableEffect(activity, isDark) {
+    activity?.enableEdgeToEdge(
+      statusBarStyle = if (isDark) {
+        SystemBarStyle.dark(AndroidColor.TRANSPARENT)
+      } else {
+        SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
+      },
+      navigationBarStyle = if (isDark) {
+        SystemBarStyle.dark(AndroidColor.TRANSPARENT)
+      } else {
+        SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
+      },
+    )
+    onDispose {}
+  }
+
+  MoodyTheme(
+    appearanceMode = uiState.appearanceMode,
+    palette = uiState.colorPalette,
+  ) {
+    MoodyAppScaffold(
+      uiState = uiState,
+      viewModel = viewModel,
+    )
+  }
+}
+
+@Composable
+private fun MoodyAppScaffold(
+  uiState: MoodyUiState,
+  viewModel: MoodyViewModel,
+) {
+  val colors = MoodyTheme.colors
   val navController = rememberNavController()
   val backStackEntry by navController.currentBackStackEntryAsState()
   val currentDestination = backStackEntry?.destination
@@ -123,19 +159,19 @@ fun MoodyApp(
   BoxWithConstraints(
     modifier = Modifier
       .fillMaxSize()
-      .background(ObsidianBg),
+      .background(colors.background),
   ) {
     val useRail = maxWidth >= 840.dp
 
     Scaffold(
-      containerColor = ObsidianBg,
+      containerColor = colors.background,
       contentWindowInsets = WindowInsets.safeDrawing,
       bottomBar = {
         if (!useRail) {
           Box {
             NavigationBar(
-              containerColor = CharcoalBase.copy(alpha = 0.96f),
-              contentColor = TextPrimary,
+              containerColor = colors.surfaceBase.copy(alpha = 0.96f),
+              contentColor = colors.textPrimary,
               tonalElevation = 0.dp,
             ) {
               moodyTabs.forEach { tab ->
@@ -156,18 +192,18 @@ fun MoodyApp(
                     )
                   },
                   colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = AccentPrimary,
-                    selectedTextColor = TextPrimary,
-                    indicatorColor = GlassSurfaceElevated,
-                    unselectedIconColor = TextMuted,
-                    unselectedTextColor = TextMuted,
+                    selectedIconColor = colors.accentPrimary,
+                    selectedTextColor = colors.textPrimary,
+                    indicatorColor = colors.cardSurfaceElevated,
+                    unselectedIconColor = colors.textMuted,
+                    unselectedTextColor = colors.textMuted,
                   ),
                   modifier = Modifier.testTag("nav_${tab.route}"),
                 )
               }
             }
             HorizontalDivider(
-              color = GlassBorder,
+              color = colors.border,
               thickness = 1.dp,
               modifier = Modifier.align(Alignment.TopCenter),
             )
@@ -182,8 +218,8 @@ fun MoodyApp(
       ) {
         if (useRail) {
           NavigationRail(
-            containerColor = CharcoalBase,
-            contentColor = TextPrimary,
+            containerColor = colors.surfaceBase,
+            contentColor = colors.textPrimary,
             modifier = Modifier.fillMaxHeight(),
           ) {
             moodyTabs.forEach { tab ->
@@ -204,11 +240,11 @@ fun MoodyApp(
                   )
                 },
                 colors = NavigationRailItemDefaults.colors(
-                  selectedIconColor = AccentPrimary,
-                  selectedTextColor = TextPrimary,
-                  indicatorColor = GlassSurfaceElevated,
-                  unselectedIconColor = TextMuted,
-                  unselectedTextColor = TextMuted,
+                  selectedIconColor = colors.accentPrimary,
+                  selectedTextColor = colors.textPrimary,
+                  indicatorColor = colors.cardSurfaceElevated,
+                  unselectedIconColor = colors.textMuted,
+                  unselectedTextColor = colors.textMuted,
                 ),
                 modifier = Modifier.testTag("nav_${tab.route}"),
               )
@@ -248,16 +284,17 @@ fun MoodyApp(
                 onOpenEntry = viewModel::openEntryEditor,
               )
             }
-            composable(ROUTE_DATA) {
+            composable(ROUTE_SETTINGS) {
               DataScreen(
                 uiState = uiState,
+                onSelectAppearanceMode = viewModel::setAppearanceMode,
+                onSelectColorPalette = viewModel::setColorPalette,
                 onBuildJsonExport = viewModel::buildJsonExport,
                 onBuildCsvExport = viewModel::buildCsvExport,
                 onHandleJsonImportRaw = viewModel::handleJsonImportRaw,
+                onHandleCsvImportRaw = viewModel::handleCsvImportRaw,
                 onConfirmImport = viewModel::confirmImport,
                 onDismissImportDialog = viewModel::dismissImportDialog,
-                onClearDemoData = viewModel::clearDemoData,
-                onRestoreDemoData = viewModel::restoreDemoData,
                 onDeleteAllEntries = viewModel::deleteAllEntries,
                 onShowStatus = viewModel::showStatus,
               )
@@ -284,6 +321,7 @@ fun MoodyApp(
     EntryDetailSheet(
       entry = entry,
       suggestedTags = uiState.suggestedTags,
+      dailyContexts = uiState.dailyContexts,
       onSave = viewModel::saveEditedEntry,
       onDelete = viewModel::deleteEntry,
       onDismiss = viewModel::closeEntryEditor,

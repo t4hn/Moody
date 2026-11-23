@@ -4,6 +4,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,23 +21,29 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoDelete
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.DeleteForever
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.FileUpload
-import androidx.compose.material.icons.outlined.Restore
+import androidx.compose.material.icons.outlined.LightMode
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.SettingsBrightness
 import androidx.compose.material.icons.outlined.TableChart
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,22 +52,19 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.model.MoodLevel
 import com.example.ui.components.GlassCard
-import com.example.ui.theme.AccentPrimary
-import com.example.ui.theme.DangerRose
-import com.example.ui.theme.GlassBorder
-import com.example.ui.theme.GlassBorderBright
-import com.example.ui.theme.GlassSurfaceElevated
-import com.example.ui.theme.MoodColor2
+import com.example.ui.theme.AppearanceMode
 import com.example.ui.theme.MoodColor4
-import com.example.ui.theme.ObsidianBg
-import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.MoodyPalette
+import com.example.ui.theme.MoodyTheme
 import com.example.util.DateTimeUtils
 import com.example.viewmodel.MoodyUiState
 import kotlinx.coroutines.Dispatchers
@@ -68,17 +74,19 @@ import kotlinx.coroutines.withContext
 @Composable
 fun DataScreen(
   uiState: MoodyUiState,
+  onSelectAppearanceMode: (AppearanceMode) -> Unit,
+  onSelectColorPalette: (MoodyPalette) -> Unit,
   onBuildJsonExport: () -> String,
   onBuildCsvExport: () -> String,
   onHandleJsonImportRaw: (String) -> Unit,
+  onHandleCsvImportRaw: (String) -> Unit,
   onConfirmImport: (replaceExisting: Boolean) -> Unit,
   onDismissImportDialog: () -> Unit,
-  onClearDemoData: () -> Unit,
-  onRestoreDemoData: () -> Unit,
   onDeleteAllEntries: () -> Unit,
   onShowStatus: (String) -> Unit,
   modifier: Modifier = Modifier,
 ) {
+  val colors = MoodyTheme.colors
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
   var showClearAllDialog by remember { mutableStateOf(false) }
@@ -148,6 +156,27 @@ fun DataScreen(
     }
   }
 
+  val importCsvLauncher = rememberLauncherForActivityResult(
+    contract = ActivityResultContracts.OpenDocument(),
+  ) { uri ->
+    if (uri != null) {
+      scope.launch {
+        val readResult = withContext(Dispatchers.IO) {
+          runCatching {
+            context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use {
+              it.readText()
+            } ?: error("Could not read selected file")
+          }
+        }
+        readResult.onSuccess { rawText ->
+          onHandleCsvImportRaw(rawText)
+        }.onFailure { err ->
+          onShowStatus("Failed to read CSV file: ${err.localizedMessage ?: "unknown error"}")
+        }
+      }
+    }
+  }
+
   Box(
     modifier = modifier.fillMaxSize(),
     contentAlignment = Alignment.TopCenter,
@@ -162,15 +191,15 @@ fun DataScreen(
       item {
         Column(modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {
           Text(
-            text = "DATA & VAULT",
+            text = "SETTINGS",
             style = MaterialTheme.typography.labelSmall,
-            color = AccentPrimary,
+            color = colors.accentPrimary,
           )
           Spacer(modifier = Modifier.height(4.dp))
           Text(
-            text = "Local Backup",
+            text = "Appearance & Data",
             style = MaterialTheme.typography.displaySmall,
-            color = TextPrimary,
+            color = colors.textPrimary,
           )
         }
       }
@@ -181,14 +210,14 @@ fun DataScreen(
           uiState.statusMessage?.let { message ->
             Surface(
               shape = RoundedCornerShape(16.dp),
-              color = AccentPrimary.copy(alpha = 0.14f),
-              border = BorderStroke(1.dp, AccentPrimary.copy(alpha = 0.4f)),
+              color = colors.accentPrimary.copy(alpha = 0.14f),
+              border = BorderStroke(1.dp, colors.accentPrimary.copy(alpha = 0.4f)),
               modifier = Modifier.fillMaxWidth(),
             ) {
               Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
-                color = TextPrimary,
+                color = colors.textPrimary,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
               )
             }
@@ -196,7 +225,110 @@ fun DataScreen(
         }
       }
 
-      // Vault Summary Card
+      // 1. Appearance & Colour Theme Settings Section
+      item {
+        GlassCard(glowColor = colors.accentPrimary, cornerRadius = 24.dp) {
+          Column(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+          ) {
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+              Icon(
+                imageVector = Icons.Outlined.Palette,
+                contentDescription = null,
+                tint = colors.accentPrimary,
+                modifier = Modifier.size(20.dp),
+              )
+              Text(
+                text = "Appearance",
+                style = MaterialTheme.typography.titleLarge,
+                color = colors.textPrimary,
+              )
+            }
+
+            // Appearance Mode selector (System Default / Light / Dark)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+              Text(
+                text = "Theme mode",
+                style = MaterialTheme.typography.labelLarge,
+                color = colors.textSecondary,
+              )
+              Row(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .clip(RoundedCornerShape(14.dp))
+                  .background(colors.chartTrack)
+                  .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+              ) {
+                AppearanceMode.entries.forEach { mode ->
+                  val selected = uiState.appearanceMode == mode
+                  val modeIcon = when (mode) {
+                    AppearanceMode.SYSTEM -> Icons.Outlined.SettingsBrightness
+                    AppearanceMode.LIGHT -> Icons.Outlined.LightMode
+                    AppearanceMode.DARK -> Icons.Outlined.DarkMode
+                  }
+                  Row(
+                    modifier = Modifier
+                      .weight(1f)
+                      .minimumInteractiveComponentSize()
+                      .clip(RoundedCornerShape(10.dp))
+                      .background(if (selected) colors.cardSurfaceElevated else Color.Transparent)
+                      .clickable { onSelectAppearanceMode(mode) }
+                      .padding(horizontal = 6.dp, vertical = 8.dp)
+                      .testTag("appearance_mode_${mode.name.lowercase()}"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                  ) {
+                    Icon(
+                      imageVector = modeIcon,
+                      contentDescription = null,
+                      tint = if (selected) colors.accentPrimary else colors.textSecondary,
+                      modifier = Modifier.size(15.dp),
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                      text = if (mode == AppearanceMode.SYSTEM) "System" else mode.label,
+                      style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                      ),
+                      color = if (selected) colors.textPrimary else colors.textSecondary,
+                      maxLines = 1,
+                    )
+                  }
+                }
+              }
+            }
+
+            HorizontalDivider(color = colors.border)
+
+            // Colour Palette selector
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+              Text(
+                text = "Colour palette",
+                style = MaterialTheme.typography.labelLarge,
+                color = colors.textSecondary,
+              )
+              MoodyPalette.entries.forEach { palette ->
+                val selected = uiState.colorPalette == palette
+                PaletteOptionRow(
+                  palette = palette,
+                  isDarkPreview = colors.isDark,
+                  selected = selected,
+                  onClick = { onSelectColorPalette(palette) },
+                )
+              }
+            }
+          }
+        }
+      }
+
+      // 2. Journal Vault Summary Card
       item {
         val oldestTs = uiState.allEntries.minOfOrNull { it.timestamp }
         val newestTs = uiState.allEntries.maxOfOrNull { it.timestamp }
@@ -205,7 +337,7 @@ fun DataScreen(
         } else {
           "No entries stored"
         }
-        GlassCard(glowColor = MoodColor2, cornerRadius = 24.dp) {
+        GlassCard(glowColor = colors.accentSecondary, cornerRadius = 24.dp) {
           Column(
             modifier = Modifier
               .fillMaxWidth()
@@ -214,34 +346,33 @@ fun DataScreen(
             Text(
               text = "On-Device Storage",
               style = MaterialTheme.typography.titleLarge,
-              color = TextPrimary,
+              color = colors.textPrimary,
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
               text = "Everything is auto-saved locally to your device.",
               style = MaterialTheme.typography.bodySmall,
-              color = TextSecondary,
+              color = colors.textSecondary,
             )
             Spacer(modifier = Modifier.height(14.dp))
             Row(
               modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.SpaceBetween,
+              horizontalArrangement = Arrangement.spacedBy(32.dp),
             ) {
               VaultMetric(label = "Total entries", value = uiState.allEntries.size.toString())
-              VaultMetric(label = "Demo entries", value = uiState.demoEntryCount.toString())
               VaultMetric(label = "Unique tags", value = uiState.stats.distinctTagCount.toString())
             }
             Spacer(modifier = Modifier.height(12.dp))
             Text(
               text = "Span: $spanText",
               style = MaterialTheme.typography.labelSmall,
-              color = TextMuted,
+              color = colors.textMuted,
             )
           }
         }
       }
 
-      // Export Card
+      // 3. Export Card
       item {
         GlassCard(cornerRadius = 24.dp) {
           Column(
@@ -253,20 +384,20 @@ fun DataScreen(
             Text(
               text = "Export",
               style = MaterialTheme.typography.titleLarge,
-              color = TextPrimary,
+              color = colors.textPrimary,
             )
             Text(
               text = "Save a complete JSON backup for re-importing later, or export CSV for spreadsheets.",
               style = MaterialTheme.typography.bodySmall,
-              color = TextSecondary,
+              color = colors.textSecondary,
             )
             Spacer(modifier = Modifier.height(2.dp))
 
             DataActionRow(
               icon = Icons.Outlined.Download,
               title = "Export JSON Backup",
-              subtitle = "Full mood entries, timestamps, tags & notes",
-              accent = AccentPrimary,
+              subtitle = "Full mood entries, tags, notes & contextual data",
+              accent = colors.accentPrimary,
               enabled = uiState.allEntries.isNotEmpty(),
               onClick = {
                 exportJsonLauncher.launch("moody-backup-${DateTimeUtils.formatFileDate()}.json")
@@ -277,7 +408,7 @@ fun DataScreen(
             DataActionRow(
               icon = Icons.Outlined.TableChart,
               title = "Export CSV",
-              subtitle = "Columns: timestamp, mood, tags, note",
+              subtitle = "Entries with sleep, wellbeing & physical activity columns",
               accent = MoodColor4,
               enabled = uiState.allEntries.isNotEmpty(),
               onClick = {
@@ -289,7 +420,7 @@ fun DataScreen(
         }
       }
 
-      // Import Card
+      // 4. Import Card
       item {
         GlassCard(cornerRadius = 24.dp) {
           Column(
@@ -301,31 +432,43 @@ fun DataScreen(
             Text(
               text = "Import",
               style = MaterialTheme.typography.titleLarge,
-              color = TextPrimary,
+              color = colors.textPrimary,
             )
             Text(
-              text = "Load a MOODY JSON backup and choose to merge with or replace your current entries.",
+              text = "Load a MOODY JSON or CSV backup and choose to merge with or replace your current entries.",
               style = MaterialTheme.typography.bodySmall,
-              color = TextSecondary,
+              color = colors.textSecondary,
             )
             Spacer(modifier = Modifier.height(2.dp))
 
             DataActionRow(
               icon = Icons.Outlined.FileUpload,
               title = "Import from JSON",
-              subtitle = "Validates format before merging or replacing",
-              accent = MoodColor2,
+              subtitle = "Validates JSON backup before merging or replacing",
+              accent = colors.accentSecondary,
               enabled = true,
               onClick = {
                 importJsonLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
               },
               testTag = "import_json_button",
             )
+
+            DataActionRow(
+              icon = Icons.Outlined.TableChart,
+              title = "Import from CSV",
+              subtitle = "Imports exported CSV logs with optional context fields",
+              accent = colors.accentPrimary,
+              enabled = true,
+              onClick = {
+                importCsvLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain", "*/*"))
+              },
+              testTag = "import_csv_button",
+            )
           }
         }
       }
 
-      // Demo & Reset Card
+      // 5. Data Management Card
       item {
         GlassCard(cornerRadius = 24.dp) {
           Column(
@@ -335,42 +478,70 @@ fun DataScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
           ) {
             Text(
-              text = "Demo & Cleanup",
+              text = "Data Management",
               style = MaterialTheme.typography.titleLarge,
-              color = TextPrimary,
+              color = colors.textPrimary,
             )
-
-            if (uiState.demoEntryCount > 0) {
-              DataActionRow(
-                icon = Icons.Outlined.AutoDelete,
-                title = "Clear demo data",
-                subtitle = "Remove ${uiState.demoEntryCount} seeded sample entries (keeps your own logs)",
-                accent = MoodColor4,
-                enabled = true,
-                onClick = onClearDemoData,
-                testTag = "clear_demo_button",
-              )
-            } else {
-              DataActionRow(
-                icon = Icons.Outlined.Restore,
-                title = "Restore demo data",
-                subtitle = "Add sample entries across recent days to preview charts",
-                accent = AccentPrimary,
-                enabled = true,
-                onClick = onRestoreDemoData,
-                testTag = "restore_demo_button",
-              )
-            }
 
             DataActionRow(
               icon = Icons.Outlined.DeleteForever,
               title = "Delete all entries",
               subtitle = "Permanently wipe the local mood database",
-              accent = DangerRose,
+              accent = colors.danger,
               enabled = uiState.allEntries.isNotEmpty(),
               onClick = { showClearAllDialog = true },
               testTag = "delete_all_button",
             )
+          }
+        }
+      }
+
+      // 6. Informational Mood Scale Card
+      item {
+        GlassCard(cornerRadius = 24.dp) {
+          Column(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            Text(
+              text = "Mood Scale",
+              style = MaterialTheme.typography.titleLarge,
+              color = colors.textPrimary,
+            )
+            Text(
+              text = "Five-point scoring guide used across your timeline, charts, and heatmap.",
+              style = MaterialTheme.typography.bodySmall,
+              color = colors.textSecondary,
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            MoodLevel.entries.forEach { level ->
+              Row(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+              ) {
+                Box(
+                  modifier = Modifier
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(level.color),
+                )
+                Text(
+                  text = "${level.score}",
+                  style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                  color = colors.textPrimary,
+                )
+                Text(
+                  text = level.scaleDescription,
+                  style = MaterialTheme.typography.bodySmall,
+                  color = colors.textSecondary,
+                )
+              }
+            }
           }
         }
       }
@@ -382,42 +553,42 @@ fun DataScreen(
     if (dialogState.errorMessage != null) {
       AlertDialog(
         onDismissRequest = onDismissImportDialog,
-        containerColor = GlassSurfaceElevated,
-        title = { Text("Invalid Backup File", color = DangerRose) },
-        text = { Text(dialogState.errorMessage, color = TextSecondary) },
+        containerColor = colors.cardSurfaceElevated,
+        title = { Text("Invalid Backup File", color = colors.danger) },
+        text = { Text(dialogState.errorMessage, color = colors.textSecondary) },
         confirmButton = {
           TextButton(onClick = onDismissImportDialog) {
-            Text("OK", color = TextPrimary)
+            Text("OK", color = colors.textPrimary)
           }
         },
       )
     } else if (dialogState.validEntries != null) {
       AlertDialog(
         onDismissRequest = onDismissImportDialog,
-        containerColor = GlassSurfaceElevated,
+        containerColor = colors.cardSurfaceElevated,
         title = {
-          Text("Import ${dialogState.validEntries.size} entries", color = TextPrimary)
+          Text("Import ${dialogState.validEntries.size} entries", color = colors.textPrimary)
         },
         text = {
           Text(
             text = "How would you like to import these entries into MOODY?",
-            color = TextSecondary,
+            color = colors.textSecondary,
           )
         },
         confirmButton = {
           Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
               onClick = { onConfirmImport(true) },
-              border = BorderStroke(1.dp, DangerRose.copy(alpha = 0.6f)),
+              border = BorderStroke(1.dp, colors.danger.copy(alpha = 0.6f)),
               modifier = Modifier.testTag("import_replace_button"),
             ) {
-              Text("Replace", color = DangerRose)
+              Text("Replace", color = colors.danger)
             }
             Button(
               onClick = { onConfirmImport(false) },
               colors = ButtonDefaults.buttonColors(
-                containerColor = AccentPrimary,
-                contentColor = ObsidianBg,
+                containerColor = colors.accentPrimary,
+                contentColor = colors.onAccentPrimary,
               ),
               modifier = Modifier.testTag("import_merge_button"),
             ) {
@@ -427,7 +598,7 @@ fun DataScreen(
         },
         dismissButton = {
           TextButton(onClick = onDismissImportDialog) {
-            Text("Cancel", color = TextSecondary)
+            Text("Cancel", color = colors.textSecondary)
           }
         },
       )
@@ -437,12 +608,12 @@ fun DataScreen(
   if (showClearAllDialog) {
     AlertDialog(
       onDismissRequest = { showClearAllDialog = false },
-      containerColor = GlassSurfaceElevated,
-      title = { Text("Delete all entries?", color = TextPrimary) },
+      containerColor = colors.cardSurfaceElevated,
+      title = { Text("Delete all entries?", color = colors.textPrimary) },
       text = {
         Text(
           text = "This will permanently delete all ${uiState.allEntries.size} entries on this device. Consider exporting a JSON backup first.",
-          color = TextSecondary,
+          color = colors.textSecondary,
         )
       },
       confirmButton = {
@@ -452,15 +623,90 @@ fun DataScreen(
             onDeleteAllEntries()
           },
         ) {
-          Text("Delete All", color = DangerRose)
+          Text("Delete All", color = colors.danger)
         }
       },
       dismissButton = {
         TextButton(onClick = { showClearAllDialog = false }) {
-          Text("Cancel", color = TextSecondary)
+          Text("Cancel", color = colors.textSecondary)
         }
       },
     )
+  }
+}
+
+@Composable
+private fun PaletteOptionRow(
+  palette: MoodyPalette,
+  isDarkPreview: Boolean,
+  selected: Boolean,
+  onClick: () -> Unit,
+) {
+  val colors = MoodyTheme.colors
+  val swatchBg = if (isDarkPreview) palette.previewDarkBg else palette.previewLightBg
+  val swatchAccent = if (isDarkPreview) palette.previewAccentDark else palette.previewAccentLight
+
+  Surface(
+    onClick = onClick,
+    shape = RoundedCornerShape(16.dp),
+    color = if (selected) colors.accentPrimary.copy(alpha = 0.12f) else colors.cardSurfaceElevated.copy(alpha = 0.65f),
+    border = BorderStroke(
+      width = if (selected) 1.5.dp else 1.dp,
+      color = if (selected) colors.accentPrimary.copy(alpha = 0.7f) else colors.border,
+    ),
+    modifier = Modifier
+      .fillMaxWidth()
+      .minimumInteractiveComponentSize()
+      .testTag("palette_${palette.name.lowercase()}"),
+  ) {
+    Row(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 14.dp, vertical = 12.dp),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      // Two-tone swatch preview (background + accent dot)
+      Box(
+        modifier = Modifier
+          .size(34.dp)
+          .clip(CircleShape)
+          .background(swatchBg)
+          .border(1.5.dp, colors.borderBright, CircleShape),
+        contentAlignment = Alignment.Center,
+      ) {
+        Box(
+          modifier = Modifier
+            .size(14.dp)
+            .clip(CircleShape)
+            .background(swatchAccent),
+        )
+      }
+
+      Spacer(modifier = Modifier.width(12.dp))
+
+      Column(modifier = Modifier.weight(1f)) {
+        Text(
+          text = palette.title,
+          style = MaterialTheme.typography.titleMedium,
+          color = colors.textPrimary,
+        )
+        Text(
+          text = palette.subtitle,
+          style = MaterialTheme.typography.bodySmall,
+          color = colors.textSecondary,
+        )
+      }
+
+      if (selected) {
+        Spacer(modifier = Modifier.width(8.dp))
+        Icon(
+          imageVector = Icons.Outlined.Check,
+          contentDescription = "Selected palette",
+          tint = colors.accentPrimary,
+          modifier = Modifier.size(20.dp),
+        )
+      }
+    }
   }
 }
 
@@ -469,16 +715,17 @@ private fun VaultMetric(
   label: String,
   value: String,
 ) {
+  val colors = MoodyTheme.colors
   Column {
     Text(
       text = value,
       style = MaterialTheme.typography.headlineSmall,
-      color = TextPrimary,
+      color = colors.textPrimary,
     )
     Text(
       text = label,
       style = MaterialTheme.typography.bodySmall,
-      color = TextMuted,
+      color = colors.textMuted,
     )
   }
 }
@@ -488,19 +735,21 @@ private fun DataActionRow(
   icon: ImageVector,
   title: String,
   subtitle: String,
-  accent: androidx.compose.ui.graphics.Color,
+  accent: Color,
   enabled: Boolean,
   onClick: () -> Unit,
   testTag: String,
 ) {
+  val colors = MoodyTheme.colors
   Surface(
     onClick = onClick,
     enabled = enabled,
     shape = RoundedCornerShape(16.dp),
-    color = GlassSurfaceElevated.copy(alpha = if (enabled) 0.75f else 0.35f),
-    border = BorderStroke(1.dp, if (enabled) GlassBorderBright else GlassBorder),
+    color = colors.cardSurfaceElevated.copy(alpha = if (enabled) 0.75f else 0.35f),
+    border = BorderStroke(1.dp, if (enabled) colors.borderBright else colors.border),
     modifier = Modifier
       .fillMaxWidth()
+      .minimumInteractiveComponentSize()
       .testTag(testTag),
   ) {
     Row(
@@ -512,7 +761,7 @@ private fun DataActionRow(
       Icon(
         imageVector = icon,
         contentDescription = null,
-        tint = if (enabled) accent else TextMuted,
+        tint = if (enabled) accent else colors.textMuted,
         modifier = Modifier.size(22.dp),
       )
       Spacer(modifier = Modifier.width(14.dp))
@@ -520,12 +769,12 @@ private fun DataActionRow(
         Text(
           text = title,
           style = MaterialTheme.typography.titleMedium,
-          color = if (enabled) TextPrimary else TextMuted,
+          color = if (enabled) colors.textPrimary else colors.textMuted,
         )
         Text(
           text = subtitle,
           style = MaterialTheme.typography.bodySmall,
-          color = if (enabled) TextSecondary else TextMuted,
+          color = if (enabled) colors.textSecondary else colors.textMuted,
         )
       }
     }

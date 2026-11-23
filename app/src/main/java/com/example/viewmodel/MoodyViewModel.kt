@@ -10,6 +10,8 @@ import com.example.data.MoodyDatabase
 import com.example.data.MoodyPreferences
 import com.example.model.MoodEntry
 import com.example.model.MoodLevel
+import com.example.ui.theme.AppearanceMode
+import com.example.ui.theme.MoodyPalette
 import com.example.util.DateTimeUtils
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -23,10 +25,14 @@ import java.util.UUID
 
 class MoodyViewModel(application: Application) : AndroidViewModel(application) {
 
-  private val repository: MoodRepository = MoodRepository(
-    dao = MoodyDatabase.getInstance(application).moodEntryDao(),
-    preferences = MoodyPreferences(application),
-  )
+  private val repository: MoodRepository = run {
+    val db = MoodyDatabase.getInstance(application)
+    MoodRepository(
+      dao = db.moodEntryDao(),
+      dailyContextDao = db.dailyContextDao(),
+      preferences = MoodyPreferences(application),
+    )
+  }
 
   private data class ViewControls(
     val customQuickTimestamp: Long? = null,
@@ -50,9 +56,11 @@ class MoodyViewModel(application: Application) : AndroidViewModel(application) {
 
   val uiState: StateFlow<MoodyUiState> = combine(
     repository.allEntries,
-    repository.demoEntryCount,
+    repository.dailyContexts,
+    repository.appearanceMode,
+    repository.colorPalette,
     controls,
-  ) { entries, demoCount, ctrl ->
+  ) { entries, dailyContexts, appearanceMode, colorPalette, ctrl ->
     val now = System.currentTimeMillis()
     val todayStart = DateTimeUtils.startOfDayMillis(now)
     val todayEnd = DateTimeUtils.endOfDayMillis(now)
@@ -65,6 +73,11 @@ class MoodyViewModel(application: Application) : AndroidViewModel(application) {
       heatmap.firstOrNull { it.dayStartMillis == selectedStart }
     } ?: heatmap.lastOrNull { !it.isFuture && it.entryCount > 0 }
     val todBuckets = MoodAnalytics.computeTimeOfDayBuckets(entries, ctrl.timeOfDayMode)
+    val sleepAnalytics = MoodAnalytics.computeSleepAnalytics(
+      dailyContexts = dailyContexts.values,
+      range = ctrl.insightRange,
+      nowMillis = now,
+    )
     val suggestedTags = MoodAnalytics.computeSuggestedTags(entries)
     val allUsedTags = entries
       .flatMap { it.tags }
@@ -88,13 +101,15 @@ class MoodyViewModel(application: Application) : AndroidViewModel(application) {
     MoodyUiState(
       allEntries = entries,
       todayEntries = todayEntries,
-      demoEntryCount = demoCount,
+      dailyContexts = dailyContexts,
       customQuickTimestamp = ctrl.customQuickTimestamp,
       lastLoggedPulseId = ctrl.lastLoggedPulseId,
       quickToast = ctrl.quickToast,
       editingEntry = ctrl.editingEntry,
       suggestedTags = suggestedTags,
       allUsedTags = allUsedTags,
+      appearanceMode = appearanceMode,
+      colorPalette = colorPalette,
       stats = stats,
       insightRange = ctrl.insightRange,
       lineGraphPoints = linePoints,
@@ -102,6 +117,7 @@ class MoodyViewModel(application: Application) : AndroidViewModel(application) {
       selectedHeatmapDay = selectedDayCell,
       timeOfDayMode = ctrl.timeOfDayMode,
       timeOfDayBuckets = todBuckets,
+      sleepAnalytics = sleepAnalytics,
       searchQuery = ctrl.searchQuery,
       selectedFilterTags = ctrl.selectedFilterTags,
       dateFilter = ctrl.dateFilter,
@@ -112,15 +128,9 @@ class MoodyViewModel(application: Application) : AndroidViewModel(application) {
     )
   }.stateIn(
     scope = viewModelScope,
-    started = SharingStarted.WhileSubscribed(5000),
+    started = SharingStarted.Eagerly,
     initialValue = MoodyUiState(),
   )
-
-  init {
-    viewModelScope.launch {
-      repository.seedDemoDataIfFirstLaunch()
-    }
-  }
 
   fun quickLogMood(moodScore: Int) {
     val now = System.currentTimeMillis()
@@ -131,7 +141,6 @@ class MoodyViewModel(application: Application) : AndroidViewModel(application) {
       timestamp = chosenTimestamp,
       note = "",
       tags = emptyList(),
-      isDemo = false,
       createdAt = now,
       updatedAt = now,
     )
@@ -175,9 +184,15 @@ class MoodyViewModel(application: Application) : AndroidViewModel(application) {
   fun openEntryDetailsFromToast() {
     val toast = controls.value.quickToast ?: return
     toastDismissJob?.cancel()
+    val dayKey = DateTimeUtils.formatFileDate(toast.entry.timestamp)
+    val dailyCtx = uiState.value.dailyContexts[dayKey]
+    val hydratedEntry = toast.entry.copy(
+      sleepDurationMinutes = dailyCtx?.sleepDurationMinutes ?: toast.entry.sleepDurationMinutes,
+      sleepQuality = dailyCtx?.sleepQuality ?: toast.entry.sleepQuality,
+    )
     controls.value = controls.value.copy(
       quickToast = null,
-      editingEntry = toast.entry,
+      editingEntry = hydratedEntry,
     )
   }
 
@@ -193,18 +208,22 @@ class MoodyViewModel(application: Application) : AndroidViewModel(application) {
     controls.value = controls.value.copy(editingEntry = null)
   }
 
-  fun saveEditedEntry(entry: MoodEntry) {
+  fun saveEditedEntry(
+    entry: MoodEntry,
+    updateDailySleep: Boolean = true,
+  ) {
     viewModelScope.launch {
       val normalizedTags = entry.tags
         .map { it.trim().lowercase() }
         .filter { it.isNotEmpty() }
         .distinct()
-      repository.upsertEntry(
-        entry.copy(
+      repository.saveEditedEntry(
+        entry = entry.copy(
           tags = normalizedTags,
           note = entry.note.trim(),
           updatedAt = System.currentTimeMillis(),
         ),
+        updateDailySleep = updateDailySleep,
       )
       controls.value = controls.value.copy(editingEntry = null)
     }
@@ -214,6 +233,18 @@ class MoodyViewModel(application: Application) : AndroidViewModel(application) {
     viewModelScope.launch {
       repository.deleteEntry(entryId)
       controls.value = controls.value.copy(editingEntry = null)
+    }
+  }
+
+  fun setAppearanceMode(mode: AppearanceMode) {
+    viewModelScope.launch {
+      repository.setAppearanceMode(mode)
+    }
+  }
+
+  fun setColorPalette(palette: MoodyPalette) {
+    viewModelScope.launch {
+      repository.setColorPalette(palette)
     }
   }
 
@@ -256,15 +287,30 @@ class MoodyViewModel(application: Application) : AndroidViewModel(application) {
     )
   }
 
-  fun buildJsonExport(): String = MoodBackupSerializer.exportJson(uiState.value.allEntries)
+  fun buildJsonExport(): String =
+    MoodBackupSerializer.exportJson(
+      entries = uiState.value.allEntries,
+      dailyContexts = uiState.value.dailyContexts.values.toList(),
+    )
 
   fun buildCsvExport(): String = MoodBackupSerializer.exportCsv(uiState.value.allEntries)
 
   fun handleJsonImportRaw(rawContent: String) {
-    when (val result = MoodBackupSerializer.parseAndValidateJson(rawContent)) {
+    handleImportValidation(MoodBackupSerializer.parseAndValidateJson(rawContent))
+  }
+
+  fun handleCsvImportRaw(rawContent: String) {
+    handleImportValidation(MoodBackupSerializer.parseAndValidateCsv(rawContent))
+  }
+
+  private fun handleImportValidation(result: ImportValidationResult) {
+    when (result) {
       is ImportValidationResult.Valid -> {
         controls.value = controls.value.copy(
-          importDialogState = ImportDialogState(validEntries = result.entries),
+          importDialogState = ImportDialogState(
+            validEntries = result.entries,
+            validDailyContexts = result.dailyContexts,
+          ),
         )
       }
       is ImportValidationResult.Invalid -> {
@@ -276,13 +322,15 @@ class MoodyViewModel(application: Application) : AndroidViewModel(application) {
   }
 
   fun confirmImport(replaceExisting: Boolean) {
-    val entries = controls.value.importDialogState?.validEntries ?: return
+    val dialog = controls.value.importDialogState ?: return
+    val entries = dialog.validEntries ?: return
+    val dailyContexts = dialog.validDailyContexts
     viewModelScope.launch {
       if (replaceExisting) {
-        repository.replaceWithImportedEntries(entries)
+        repository.replaceWithImportedEntries(entries, dailyContexts)
         showStatus("Replaced journal with ${entries.size} imported entries.")
       } else {
-        repository.mergeImportedEntries(entries)
+        repository.mergeImportedEntries(entries, dailyContexts)
         showStatus("Merged ${entries.size} entries into your journal.")
       }
       controls.value = controls.value.copy(importDialogState = null)
@@ -291,20 +339,6 @@ class MoodyViewModel(application: Application) : AndroidViewModel(application) {
 
   fun dismissImportDialog() {
     controls.value = controls.value.copy(importDialogState = null)
-  }
-
-  fun clearDemoData() {
-    viewModelScope.launch {
-      repository.clearDemoData()
-      showStatus("Demo entries cleared.")
-    }
-  }
-
-  fun restoreDemoData() {
-    viewModelScope.launch {
-      repository.restoreDemoData()
-      showStatus("Demo entries restored.")
-    }
   }
 
   fun deleteAllEntries() {

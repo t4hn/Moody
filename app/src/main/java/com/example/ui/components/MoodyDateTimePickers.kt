@@ -26,11 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import com.example.ui.theme.AccentPrimary
-import com.example.ui.theme.GlassSurfaceElevated
-import com.example.ui.theme.ObsidianBg
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.MoodyTheme
 import com.example.util.DateTimeUtils
 import java.util.Calendar
 
@@ -42,6 +38,7 @@ fun MoodyDatePickerDialog(
   onConfirmDateUtcMillis: (Long) -> Unit,
   onDismiss: () -> Unit,
 ) {
+  val colors = MoodyTheme.colors
   val initialUtc = DateTimeUtils.toUtcDatePickerMillis(initialTimestampMillis)
   val maxUtc = maxDateMillis?.let { DateTimeUtils.toUtcDatePickerMillis(it) }
   val state = rememberDatePickerState(
@@ -56,7 +53,7 @@ fun MoodyDatePickerDialog(
   DatePickerDialog(
     onDismissRequest = onDismiss,
     colors = DatePickerDefaults.colors(
-      containerColor = GlassSurfaceElevated,
+      containerColor = colors.cardSurfaceElevated,
     ),
     confirmButton = {
       TextButton(
@@ -64,32 +61,32 @@ fun MoodyDatePickerDialog(
           state.selectedDateMillis?.let(onConfirmDateUtcMillis)
         },
       ) {
-        Text("Next", color = AccentPrimary)
+        Text("Next", color = colors.accentPrimary)
       }
     },
     dismissButton = {
       TextButton(onClick = onDismiss) {
-        Text("Cancel", color = TextSecondary)
+        Text("Cancel", color = colors.textSecondary)
       }
     },
   ) {
     DatePicker(
       state = state,
       colors = DatePickerDefaults.colors(
-        containerColor = GlassSurfaceElevated,
-        titleContentColor = TextSecondary,
-        headlineContentColor = TextPrimary,
-        weekdayContentColor = TextSecondary,
-        subheadContentColor = TextPrimary,
-        yearContentColor = TextPrimary,
-        currentYearContentColor = AccentPrimary,
-        selectedYearContentColor = ObsidianBg,
-        selectedYearContainerColor = AccentPrimary,
-        dayContentColor = TextPrimary,
-        selectedDayContentColor = ObsidianBg,
-        selectedDayContainerColor = AccentPrimary,
-        todayContentColor = AccentPrimary,
-        todayDateBorderColor = AccentPrimary,
+        containerColor = colors.cardSurfaceElevated,
+        titleContentColor = colors.textSecondary,
+        headlineContentColor = colors.textPrimary,
+        weekdayContentColor = colors.textSecondary,
+        subheadContentColor = colors.textPrimary,
+        yearContentColor = colors.textPrimary,
+        currentYearContentColor = colors.accentPrimary,
+        selectedYearContentColor = colors.onAccentPrimary,
+        selectedYearContainerColor = colors.accentPrimary,
+        dayContentColor = colors.textPrimary,
+        selectedDayContentColor = colors.onAccentPrimary,
+        selectedDayContainerColor = colors.accentPrimary,
+        todayContentColor = colors.accentPrimary,
+        todayDateBorderColor = colors.accentPrimary,
       ),
     )
   }
@@ -102,6 +99,7 @@ fun MoodyTimePickerDialog(
   onConfirmTime: (hour: Int, minute: Int) -> Unit,
   onDismiss: () -> Unit,
 ) {
+  val colors = MoodyTheme.colors
   val cal = Calendar.getInstance().apply { timeInMillis = initialTimestampMillis }
   val state = rememberTimePickerState(
     initialHour = cal.get(Calendar.HOUR_OF_DAY),
@@ -112,7 +110,7 @@ fun MoodyTimePickerDialog(
   Dialog(onDismissRequest = onDismiss) {
     Surface(
       shape = RoundedCornerShape(24.dp),
-      color = GlassSurfaceElevated,
+      color = colors.cardSurfaceElevated,
     ) {
       Column(
         modifier = Modifier.padding(24.dp),
@@ -121,24 +119,24 @@ fun MoodyTimePickerDialog(
         Text(
           text = "Select time",
           style = MaterialTheme.typography.titleMedium,
-          color = TextSecondary,
+          color = colors.textSecondary,
           modifier = Modifier.fillMaxWidth(),
         )
         Spacer(modifier = Modifier.height(16.dp))
         TimePicker(
           state = state,
           colors = TimePickerDefaults.colors(
-            clockDialColor = ObsidianBg.copy(alpha = 0.7f),
-            clockDialSelectedContentColor = ObsidianBg,
-            clockDialUnselectedContentColor = TextPrimary,
-            selectorColor = AccentPrimary,
-            periodSelectorSelectedContainerColor = AccentPrimary.copy(alpha = 0.25f),
-            periodSelectorSelectedContentColor = AccentPrimary,
-            periodSelectorUnselectedContentColor = TextSecondary,
-            timeSelectorSelectedContainerColor = AccentPrimary.copy(alpha = 0.2f),
-            timeSelectorUnselectedContainerColor = ObsidianBg.copy(alpha = 0.5f),
-            timeSelectorSelectedContentColor = AccentPrimary,
-            timeSelectorUnselectedContentColor = TextPrimary,
+            clockDialColor = colors.background.copy(alpha = 0.7f),
+            clockDialSelectedContentColor = colors.onAccentPrimary,
+            clockDialUnselectedContentColor = colors.textPrimary,
+            selectorColor = colors.accentPrimary,
+            periodSelectorSelectedContainerColor = colors.accentPrimary.copy(alpha = 0.25f),
+            periodSelectorSelectedContentColor = colors.accentPrimary,
+            periodSelectorUnselectedContentColor = colors.textSecondary,
+            timeSelectorSelectedContainerColor = colors.accentPrimary.copy(alpha = 0.2f),
+            timeSelectorUnselectedContainerColor = colors.background.copy(alpha = 0.5f),
+            timeSelectorSelectedContentColor = colors.accentPrimary,
+            timeSelectorUnselectedContentColor = colors.textPrimary,
           ),
         )
         Spacer(modifier = Modifier.height(12.dp))
@@ -147,10 +145,10 @@ fun MoodyTimePickerDialog(
           horizontalArrangement = Arrangement.End,
         ) {
           TextButton(onClick = onDismiss) {
-            Text("Cancel", color = TextSecondary)
+            Text("Cancel", color = colors.textSecondary)
           }
           TextButton(onClick = { onConfirmTime(state.hour, state.minute) }) {
-            Text("Set time", color = AccentPrimary)
+            Text("Set time", color = colors.accentPrimary)
           }
         }
       }

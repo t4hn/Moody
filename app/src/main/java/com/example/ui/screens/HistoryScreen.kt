@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -50,14 +49,7 @@ import com.example.model.MoodEntry
 import com.example.ui.components.GlassCard
 import com.example.ui.components.MoodEntryCard
 import com.example.ui.components.MoodyDatePickerDialog
-import com.example.ui.theme.AccentPrimary
-import com.example.ui.theme.GlassBorder
-import com.example.ui.theme.GlassBorderBright
-import com.example.ui.theme.GlassSurface
-import com.example.ui.theme.GlassSurfaceElevated
-import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.MoodyTheme
 import com.example.ui.theme.moodColorInterpolated
 import com.example.util.DateTimeUtils
 import com.example.viewmodel.HistoryDateFilter
@@ -74,6 +66,7 @@ fun HistoryScreen(
   onOpenEntry: (MoodEntry) -> Unit,
   modifier: Modifier = Modifier,
 ) {
+  val colors = MoodyTheme.colors
   var showDayFilterPicker by remember { mutableStateOf(false) }
 
   val groupedEntries = remember(uiState.filteredHistoryEntries) {
@@ -102,7 +95,7 @@ fun HistoryScreen(
           Text(
             text = "HISTORY",
             style = MaterialTheme.typography.labelSmall,
-            color = AccentPrimary,
+            color = colors.accentPrimary,
           )
           Spacer(modifier = Modifier.height(4.dp))
           Row(
@@ -113,12 +106,12 @@ fun HistoryScreen(
             Text(
               text = "All Entries",
               style = MaterialTheme.typography.displaySmall,
-              color = TextPrimary,
+              color = colors.textPrimary,
             )
             Text(
               text = "${uiState.filteredHistoryEntries.size} shown",
               style = MaterialTheme.typography.labelSmall,
-              color = TextSecondary,
+              color = colors.textSecondary,
             )
           }
         }
@@ -129,12 +122,12 @@ fun HistoryScreen(
         OutlinedTextField(
           value = uiState.searchQuery,
           onValueChange = onSearchQueryChange,
-          placeholder = { Text("Search notes, tags, or moods...", color = TextMuted) },
+          placeholder = { Text("Search notes, tags, or moods...", color = colors.textMuted) },
           leadingIcon = {
             Icon(
               imageVector = Icons.Outlined.Search,
               contentDescription = "Search entries",
-              tint = TextSecondary,
+              tint = colors.textSecondary,
             )
           },
           trailingIcon = {
@@ -143,7 +136,7 @@ fun HistoryScreen(
                 Icon(
                   imageVector = Icons.Outlined.Close,
                   contentDescription = "Clear search",
-                  tint = TextSecondary,
+                  tint = colors.textSecondary,
                 )
               }
             }
@@ -151,13 +144,13 @@ fun HistoryScreen(
           singleLine = true,
           shape = RoundedCornerShape(18.dp),
           colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = AccentPrimary.copy(alpha = 0.65f),
-            unfocusedBorderColor = GlassBorderBright,
-            focusedContainerColor = GlassSurface,
-            unfocusedContainerColor = GlassSurface,
-            focusedTextColor = TextPrimary,
-            unfocusedTextColor = TextPrimary,
-            cursorColor = AccentPrimary,
+            focusedBorderColor = colors.accentPrimary.copy(alpha = 0.65f),
+            unfocusedBorderColor = colors.borderBright,
+            focusedContainerColor = colors.cardSurface,
+            unfocusedContainerColor = colors.cardSurface,
+            focusedTextColor = colors.textPrimary,
+            unfocusedTextColor = colors.textPrimary,
+            cursorColor = colors.accentPrimary,
           ),
           modifier = Modifier
             .fillMaxWidth()
@@ -203,18 +196,18 @@ fun HistoryScreen(
                 null
               },
               colors = FilterChipDefaults.filterChipColors(
-                containerColor = GlassSurface,
-                selectedContainerColor = AccentPrimary.copy(alpha = 0.20f),
-                labelColor = TextSecondary,
-                selectedLabelColor = AccentPrimary,
-                iconColor = TextSecondary,
-                selectedLeadingIconColor = AccentPrimary,
+                containerColor = colors.cardSurface,
+                selectedContainerColor = colors.accentPrimary.copy(alpha = 0.20f),
+                labelColor = colors.textSecondary,
+                selectedLabelColor = colors.accentPrimary,
+                iconColor = colors.textSecondary,
+                selectedLeadingIconColor = colors.accentPrimary,
               ),
               border = FilterChipDefaults.filterChipBorder(
                 enabled = true,
                 selected = selected,
-                borderColor = GlassBorder,
-                selectedBorderColor = AccentPrimary.copy(alpha = 0.5f),
+                borderColor = colors.border,
+                selectedBorderColor = colors.accentPrimary.copy(alpha = 0.5f),
               ),
               shape = RoundedCornerShape(12.dp),
             )
@@ -239,23 +232,23 @@ fun HistoryScreen(
                 onClick = { onToggleFilterTag(tag) },
                 label = { Text("#$tag", style = MaterialTheme.typography.labelMedium) },
                 colors = FilterChipDefaults.filterChipColors(
-                  containerColor = GlassSurface,
-                  selectedContainerColor = GlassSurfaceElevated,
-                  labelColor = TextMuted,
-                  selectedLabelColor = TextPrimary,
+                  containerColor = colors.cardSurface,
+                  selectedContainerColor = colors.cardSurfaceElevated,
+                  labelColor = colors.textMuted,
+                  selectedLabelColor = colors.textPrimary,
                 ),
                 border = FilterChipDefaults.filterChipBorder(
                   enabled = true,
                   selected = selected,
-                  borderColor = GlassBorder,
-                  selectedBorderColor = TextPrimary.copy(alpha = 0.45f),
+                  borderColor = colors.border,
+                  selectedBorderColor = colors.textPrimary.copy(alpha = 0.45f),
                 ),
                 shape = RoundedCornerShape(12.dp),
               )
             }
             if (hasActiveFilters) {
               TextButton(onClick = onClearFilters) {
-                Text("Reset filters", color = AccentPrimary)
+                Text("Reset filters", color = colors.accentPrimary)
               }
             }
           }
@@ -264,7 +257,7 @@ fun HistoryScreen(
         item {
           Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             TextButton(onClick = onClearFilters) {
-              Text("Reset filters", color = AccentPrimary)
+              Text("Reset filters", color = colors.accentPrimary)
             }
           }
         }
@@ -282,20 +275,20 @@ fun HistoryScreen(
               Box(
                 modifier = Modifier
                   .size(48.dp)
-                  .background(GlassSurfaceElevated, CircleShape),
+                  .background(colors.cardSurfaceElevated, CircleShape),
                 contentAlignment = Alignment.Center,
               ) {
                 Icon(
                   imageVector = Icons.Outlined.SearchOff,
                   contentDescription = null,
-                  tint = TextSecondary,
+                  tint = colors.textSecondary,
                 )
               }
               Spacer(modifier = Modifier.height(12.dp))
               Text(
                 text = if (uiState.allEntries.isEmpty()) "Your journal is empty" else "No matching entries",
                 style = MaterialTheme.typography.titleMedium,
-                color = TextPrimary,
+                color = colors.textPrimary,
               )
               Spacer(modifier = Modifier.height(4.dp))
               Text(
@@ -305,13 +298,13 @@ fun HistoryScreen(
                   "Try adjusting your search query, tags, or date filter."
                 },
                 style = MaterialTheme.typography.bodySmall,
-                color = TextMuted,
+                color = colors.textMuted,
                 textAlign = TextAlign.Center,
               )
               if (hasActiveFilters) {
                 Spacer(modifier = Modifier.height(10.dp))
                 TextButton(onClick = onClearFilters) {
-                  Text("Clear all filters", color = AccentPrimary)
+                  Text("Clear all filters", color = colors.accentPrimary)
                 }
               }
             }
@@ -332,7 +325,7 @@ fun HistoryScreen(
               Text(
                 text = DateTimeUtils.formatRelativeDay(dayStart),
                 style = MaterialTheme.typography.titleMedium,
-                color = TextSecondary,
+                color = colors.textSecondary,
               )
               Surface(
                 shape = RoundedCornerShape(10.dp),
@@ -342,7 +335,7 @@ fun HistoryScreen(
                 Text(
                   text = "Avg ${MoodAnalytics.formatScore(dayAvg)}",
                   style = MaterialTheme.typography.labelSmall,
-                  color = dayColor,
+                  color = if (colors.isDark) dayColor else colors.textPrimary,
                   modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                 )
               }

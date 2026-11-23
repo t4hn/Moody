@@ -6,20 +6,24 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoGraph
+import androidx.compose.material.icons.outlined.Bedtime
 import androidx.compose.material.icons.outlined.LocalFireDepartment
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -33,18 +37,17 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.ui.components.GlassCard
 import com.example.ui.components.MoodCalendarHeatmap
 import com.example.ui.components.MoodLineChart
+import com.example.ui.components.SectionHeader
+import com.example.ui.components.SleepQualityByWeekdayChart
+import com.example.ui.components.SleepQualityLineChart
 import com.example.ui.components.TimeOfDayChart
-import com.example.ui.theme.AccentPrimary
-import com.example.ui.theme.GlassBorder
-import com.example.ui.theme.GlassSurfaceElevated
 import com.example.ui.theme.MoodColor4
-import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.MoodyTheme
 import com.example.ui.theme.moodColorInterpolated
 import com.example.viewmodel.InsightTimeRange
 import com.example.viewmodel.MoodAnalytics
@@ -59,7 +62,8 @@ fun InsightsScreen(
   onSelectTimeOfDayMode: (TimeOfDayMode) -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  val avgColor = uiState.stats.averageMood?.let { moodColorInterpolated(it) } ?: AccentPrimary
+  val colors = MoodyTheme.colors
+  val avgColor = uiState.stats.averageMood?.let { moodColorInterpolated(it) } ?: colors.accentPrimary
 
   Box(
     modifier = modifier
@@ -67,7 +71,7 @@ fun InsightsScreen(
       .background(
         Brush.verticalGradient(
           colors = listOf(
-            avgColor.copy(alpha = 0.12f),
+            avgColor.copy(alpha = if (colors.isDark) 0.12f else 0.08f),
             Color.Transparent,
           ),
           startY = 0f,
@@ -88,13 +92,13 @@ fun InsightsScreen(
           Text(
             text = "INSIGHTS",
             style = MaterialTheme.typography.labelSmall,
-            color = avgColor,
+            color = if (colors.isDark) avgColor else colors.accentPrimary,
           )
           Spacer(modifier = Modifier.height(4.dp))
           Text(
             text = "Emotional Patterns",
             style = MaterialTheme.typography.displaySmall,
-            color = TextPrimary,
+            color = colors.textPrimary,
           )
         }
       }
@@ -108,7 +112,7 @@ fun InsightsScreen(
           StatGlassTile(
             label = "Avg Mood",
             value = MoodAnalytics.formatScore(uiState.stats.averageMood),
-            accent = avgColor,
+            accent = if (colors.isDark) avgColor else colors.accentPrimary,
             modifier = Modifier
               .weight(1f)
               .testTag("stat_avg_mood"),
@@ -116,7 +120,7 @@ fun InsightsScreen(
           StatGlassTile(
             label = "Entries",
             value = uiState.stats.totalEntries.toString(),
-            accent = TextPrimary,
+            accent = colors.textPrimary,
             modifier = Modifier
               .weight(1f)
               .testTag("stat_total_entries"),
@@ -124,7 +128,7 @@ fun InsightsScreen(
           StatGlassTile(
             label = "Streak",
             value = "${uiState.stats.currentStreakDays}d",
-            accent = if (uiState.stats.currentStreakDays > 0) MoodColor4 else TextMuted,
+            accent = if (uiState.stats.currentStreakDays > 0) MoodColor4 else colors.textMuted,
             showStreakIcon = uiState.stats.currentStreakDays > 0,
             modifier = Modifier
               .weight(1f)
@@ -145,26 +149,26 @@ fun InsightsScreen(
               Box(
                 modifier = Modifier
                   .size(52.dp)
-                  .background(AccentPrimary.copy(alpha = 0.14f), CircleShape),
+                  .background(colors.accentPrimary.copy(alpha = 0.14f), CircleShape),
                 contentAlignment = Alignment.Center,
               ) {
                 Icon(
                   imageVector = Icons.Outlined.AutoGraph,
                   contentDescription = null,
-                  tint = AccentPrimary,
+                  tint = colors.accentPrimary,
                 )
               }
               Spacer(modifier = Modifier.height(12.dp))
               Text(
                 text = "Nothing charted yet",
                 style = MaterialTheme.typography.titleMedium,
-                color = TextPrimary,
+                color = colors.textPrimary,
               )
               Spacer(modifier = Modifier.height(4.dp))
               Text(
-                text = "Log a few moods in Today or restore demo data in the Data tab to explore your trends.",
+                text = "Log a few moods in Today to explore your emotional patterns and trends.",
                 style = MaterialTheme.typography.bodySmall,
-                color = TextMuted,
+                color = colors.textMuted,
                 textAlign = TextAlign.Center,
               )
             }
@@ -187,7 +191,7 @@ fun InsightsScreen(
                 Text(
                   text = "Mood Over Time",
                   style = MaterialTheme.typography.titleLarge,
-                  color = TextPrimary,
+                  color = colors.textPrimary,
                 )
               }
               Spacer(modifier = Modifier.height(12.dp))
@@ -197,7 +201,7 @@ fun InsightsScreen(
                 modifier = Modifier
                   .fillMaxWidth()
                   .clip(RoundedCornerShape(14.dp))
-                  .background(Color.White.copy(alpha = 0.04f))
+                  .background(colors.chartTrack)
                   .padding(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
               ) {
@@ -207,7 +211,7 @@ fun InsightsScreen(
                     modifier = Modifier
                       .weight(1f)
                       .clip(RoundedCornerShape(10.dp))
-                      .background(if (selected) GlassSurfaceElevated else Color.Transparent)
+                      .background(if (selected) colors.cardSurfaceElevated else Color.Transparent)
                       .clickable { onSelectRange(range) }
                       .padding(vertical = 8.dp)
                       .testTag("range_${range.name.lowercase()}"),
@@ -216,7 +220,7 @@ fun InsightsScreen(
                     Text(
                       text = range.label,
                       style = MaterialTheme.typography.labelMedium,
-                      color = if (selected) TextPrimary else TextSecondary,
+                      color = if (selected) colors.textPrimary else colors.textSecondary,
                     )
                   }
                 }
@@ -244,12 +248,12 @@ fun InsightsScreen(
                 Text(
                   text = "Mood Calendar",
                   style = MaterialTheme.typography.titleLarge,
-                  color = TextPrimary,
+                  color = colors.textPrimary,
                 )
                 Text(
                   text = "12 weeks",
                   style = MaterialTheme.typography.labelSmall,
-                  color = TextMuted,
+                  color = colors.textMuted,
                 )
               }
               Spacer(modifier = Modifier.height(14.dp))
@@ -278,12 +282,12 @@ fun InsightsScreen(
                 Text(
                   text = "Time of Day",
                   style = MaterialTheme.typography.titleLarge,
-                  color = TextPrimary,
+                  color = colors.textPrimary,
                 )
                 Row(
                   modifier = Modifier
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color.White.copy(alpha = 0.05f))
+                    .background(colors.chartTrack)
                     .padding(3.dp),
                   horizontalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
@@ -292,7 +296,7 @@ fun InsightsScreen(
                     Box(
                       modifier = Modifier
                         .clip(RoundedCornerShape(9.dp))
-                        .background(if (selected) GlassSurfaceElevated else Color.Transparent)
+                        .background(if (selected) colors.cardSurfaceElevated else Color.Transparent)
                         .clickable { onSelectTimeOfDayMode(mode) }
                         .padding(horizontal = 10.dp, vertical = 5.dp)
                         .testTag("tod_mode_${mode.name.lowercase()}"),
@@ -300,7 +304,7 @@ fun InsightsScreen(
                       Text(
                         text = mode.label,
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (selected) TextPrimary else TextMuted,
+                        color = if (selected) colors.textPrimary else colors.textMuted,
                       )
                     }
                   }
@@ -315,6 +319,221 @@ fun InsightsScreen(
           }
         }
       }
+
+      if (uiState.allEntries.isNotEmpty() || uiState.sleepAnalytics.hasAnySleepData) {
+        val sleep = uiState.sleepAnalytics
+
+        item {
+          Spacer(modifier = Modifier.height(6.dp))
+          SectionHeader(
+            title = "Sleep & Recovery",
+            trailing = {
+              Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = colors.cardSurfaceElevated,
+                border = BorderStroke(1.dp, colors.border),
+              ) {
+                Text(
+                  text = uiState.insightRange.label,
+                  style = MaterialTheme.typography.labelSmall,
+                  color = colors.textSecondary,
+                  modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                )
+              }
+            },
+            modifier = Modifier.testTag("sleep_recovery_header"),
+          )
+        }
+
+        if (!sleep.hasAnySleepData) {
+          item {
+            GlassCard(
+              cornerRadius = 24.dp,
+              modifier = Modifier.testTag("sleep_empty_state"),
+            ) {
+              Column(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(horizontal = 24.dp, vertical = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+              ) {
+                Box(
+                  modifier = Modifier
+                    .size(46.dp)
+                    .background(colors.accentPrimary.copy(alpha = 0.14f), CircleShape),
+                  contentAlignment = Alignment.Center,
+                ) {
+                  Icon(
+                    imageVector = Icons.Outlined.Bedtime,
+                    contentDescription = null,
+                    tint = colors.accentPrimary,
+                  )
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                  text = "No sleep data recorded for this period.",
+                  style = MaterialTheme.typography.titleMedium,
+                  color = colors.textPrimary,
+                  textAlign = TextAlign.Center,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                  text = "Add sleep duration and quality in Entry Details.",
+                  style = MaterialTheme.typography.bodySmall,
+                  color = colors.textMuted,
+                  textAlign = TextAlign.Center,
+                )
+              }
+            }
+          }
+        } else {
+          // A & C. Average Sleep Quality & Average Sleep Duration
+          item {
+            val qualityColor = sleep.averageQuality?.let { moodColorInterpolated(it) }
+            val qualityTextAccent = when {
+              qualityColor == null -> colors.textMuted
+              colors.isDark -> qualityColor
+              else -> colors.textPrimary
+            }
+            val qualityCountLabel = if (sleep.qualityNightCount > 0) {
+              "${sleep.qualityNightCount} ${if (sleep.qualityNightCount == 1) "night" else "nights"}"
+            } else {
+              "No nights recorded"
+            }
+            val durationCountLabel = if (sleep.durationNightCount > 0) {
+              "${sleep.durationNightCount} ${if (sleep.durationNightCount == 1) "night" else "nights"}"
+            } else {
+              "No nights recorded"
+            }
+
+            Row(
+              modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Max),
+              horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+              SleepStatTile(
+                label = "Avg Sleep Quality",
+                value = sleep.averageQuality?.let { "${MoodAnalytics.formatScore(it)} / 5" } ?: "—",
+                subtitle = qualityCountLabel,
+                valueColor = qualityTextAccent,
+                indicatorColor = qualityColor,
+                modifier = Modifier
+                  .weight(1f)
+                  .fillMaxHeight()
+                  .testTag("sleep_stat_avg_quality"),
+              )
+              SleepStatTile(
+                label = "Avg Sleep Duration",
+                value = MoodAnalytics.formatSleepDuration(sleep.averageDurationMinutes),
+                subtitle = durationCountLabel,
+                valueColor = if (sleep.averageDurationMinutes != null) colors.accentPrimary else colors.textMuted,
+                indicatorColor = if (sleep.averageDurationMinutes != null) colors.accentPrimary else null,
+                modifier = Modifier
+                  .weight(1f)
+                  .fillMaxHeight()
+                  .testTag("sleep_stat_avg_duration"),
+              )
+            }
+          }
+
+          // B. Sleep Quality History Graph
+          item {
+            GlassCard(
+              cornerRadius = 24.dp,
+              modifier = Modifier.testTag("sleep_quality_history_card"),
+            ) {
+              Column(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(18.dp),
+              ) {
+                Text(
+                  text = "Sleep Quality History",
+                  style = MaterialTheme.typography.titleLarge,
+                  color = colors.textPrimary,
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                SleepQualityLineChart(points = sleep.qualityHistory)
+              }
+            }
+          }
+
+          // D. Sleep Quality by Weekday
+          item {
+            GlassCard(
+              cornerRadius = 24.dp,
+              modifier = Modifier.testTag("sleep_weekday_card"),
+            ) {
+              Column(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(18.dp),
+              ) {
+                Text(
+                  text = "Sleep Quality by Weekday",
+                  style = MaterialTheme.typography.titleLarge,
+                  color = colors.textPrimary,
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                SleepQualityByWeekdayChart(weekdays = sleep.weekdayAverages)
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun SleepStatTile(
+  label: String,
+  value: String,
+  subtitle: String,
+  valueColor: Color,
+  indicatorColor: Color?,
+  modifier: Modifier = Modifier,
+) {
+  val colors = MoodyTheme.colors
+  Surface(
+    modifier = modifier,
+    shape = RoundedCornerShape(20.dp),
+    color = colors.cardSurfaceElevated.copy(alpha = if (colors.isDark) 0.72f else 0.92f),
+    border = BorderStroke(1.dp, colors.border),
+  ) {
+    Column(
+      modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+    ) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        if (indicatorColor != null) {
+          Box(
+            modifier = Modifier
+              .size(8.dp)
+              .background(indicatorColor, CircleShape),
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+        }
+        Text(
+          text = label,
+          style = MaterialTheme.typography.bodySmall,
+          color = colors.textSecondary,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+      }
+      Spacer(modifier = Modifier.height(6.dp))
+      Text(
+        text = value,
+        style = MaterialTheme.typography.headlineSmall,
+        color = valueColor,
+      )
+      Spacer(modifier = Modifier.height(2.dp))
+      Text(
+        text = subtitle,
+        style = MaterialTheme.typography.labelSmall,
+        color = colors.textMuted,
+      )
     }
   }
 }
@@ -327,11 +546,12 @@ private fun StatGlassTile(
   showStreakIcon: Boolean = false,
   modifier: Modifier = Modifier,
 ) {
+  val colors = MoodyTheme.colors
   Surface(
     modifier = modifier,
     shape = RoundedCornerShape(20.dp),
-    color = GlassSurfaceElevated.copy(alpha = 0.72f),
-    border = BorderStroke(1.dp, GlassBorder),
+    color = colors.cardSurfaceElevated.copy(alpha = if (colors.isDark) 0.72f else 0.92f),
+    border = BorderStroke(1.dp, colors.border),
   ) {
     Column(
       modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
@@ -340,7 +560,7 @@ private fun StatGlassTile(
         Text(
           text = label,
           style = MaterialTheme.typography.bodySmall,
-          color = TextSecondary,
+          color = colors.textSecondary,
         )
         if (showStreakIcon) {
           Spacer(modifier = Modifier.padding(start = 4.dp))

@@ -43,18 +43,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.model.MoodLevel
-import com.example.ui.theme.GlassSurfaceElevated
-import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.MoodyTheme
 
 @Composable
 fun MoodFaceOrb(
@@ -64,7 +64,15 @@ fun MoodFaceOrb(
   showGlow: Boolean = true,
   modifier: Modifier = Modifier,
 ) {
+  val colors = MoodyTheme.colors
   val accent = level.color
+  val orbFillBottom = colors.cardSurfaceElevated.copy(alpha = if (colors.isDark) 0.92f else 0.96f)
+  val faceStrokeColor = when {
+    selected -> colors.textPrimary
+    colors.isDark -> accent.copy(alpha = 0.95f)
+    else -> lerp(accent, colors.textPrimary, 0.35f)
+  }
+
   Box(
     modifier = modifier.size(size),
     contentAlignment = Alignment.Center,
@@ -92,8 +100,8 @@ fun MoodFaceOrb(
       drawCircle(
         brush = Brush.verticalGradient(
           colors = listOf(
-            accent.copy(alpha = if (selected) 0.34f else 0.16f),
-            GlassSurfaceElevated.copy(alpha = 0.92f),
+            accent.copy(alpha = if (selected) 0.34f else 0.18f),
+            orbFillBottom,
           ),
         ),
         radius = radius * 0.88f,
@@ -102,7 +110,7 @@ fun MoodFaceOrb(
 
       // Outer ring
       drawCircle(
-        color = accent.copy(alpha = if (selected) 0.95f else 0.45f),
+        color = accent.copy(alpha = if (selected) 0.95f else 0.55f),
         radius = radius * 0.88f,
         center = center,
         style = Stroke(width = if (selected) radius * 0.11f else radius * 0.065f),
@@ -112,11 +120,10 @@ fun MoodFaceOrb(
       val strokeW = (radius * 0.095f).coerceAtLeast(1.8f)
       val eyeY = center.y - radius * 0.12f
       val eyeOffsetX = radius * 0.27f
-      val faceColor = if (selected) TextPrimary else accent.copy(alpha = 0.95f)
+      val faceColor = faceStrokeColor
 
       when (level) {
         MoodLevel.VERY_LOW -> {
-          // Slanted down eyebrows/eyes + deep frown
           drawLine(
             color = faceColor,
             start = Offset(center.x - eyeOffsetX - radius * 0.09f, eyeY - radius * 0.03f),
@@ -148,7 +155,6 @@ fun MoodFaceOrb(
         }
 
         MoodLevel.LOW -> {
-          // Soft dot eyes + gentle downward curve
           drawCircle(color = faceColor, radius = radius * 0.065f, center = Offset(center.x - eyeOffsetX, eyeY))
           drawCircle(color = faceColor, radius = radius * 0.065f, center = Offset(center.x + eyeOffsetX, eyeY))
           val mouthPath = Path().apply {
@@ -168,7 +174,6 @@ fun MoodFaceOrb(
         }
 
         MoodLevel.OKAY -> {
-          // Steady eyes + calm horizontal subtle smile
           drawCircle(color = faceColor, radius = radius * 0.07f, center = Offset(center.x - eyeOffsetX, eyeY))
           drawCircle(color = faceColor, radius = radius * 0.07f, center = Offset(center.x + eyeOffsetX, eyeY))
           drawLine(
@@ -181,7 +186,6 @@ fun MoodFaceOrb(
         }
 
         MoodLevel.GOOD -> {
-          // Warm eyes + relaxed smile
           drawCircle(color = faceColor, radius = radius * 0.075f, center = Offset(center.x - eyeOffsetX, eyeY))
           drawCircle(color = faceColor, radius = radius * 0.075f, center = Offset(center.x + eyeOffsetX, eyeY))
           val mouthPath = Path().apply {
@@ -201,7 +205,6 @@ fun MoodFaceOrb(
         }
 
         MoodLevel.GREAT -> {
-          // Joyful curved eyes + radiant smile
           drawArc(
             color = faceColor,
             startAngle = 195f,
@@ -249,6 +252,7 @@ fun MoodFaceSelectorRow(
   showLabels: Boolean = true,
   modifier: Modifier = Modifier,
 ) {
+  val colors = MoodyTheme.colors
   var tappedMood by remember { mutableIntStateOf(-1) }
   val pulseProgress = remember { Animatable(0f) }
 
@@ -333,9 +337,18 @@ fun MoodFaceSelectorRow(
         if (showLabels) {
           Spacer(modifier = Modifier.height(4.dp))
           Text(
-            text = level.shortLabel,
-            style = MaterialTheme.typography.labelSmall,
-            color = if (isSelected) level.color else if (selectedMood == null) TextSecondary else TextMuted,
+            text = level.score.toString(),
+            style = MaterialTheme.typography.labelSmall.copy(
+              fontSize = 12.sp,
+              fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+            ),
+            color = if (isSelected) {
+              if (colors.isDark) level.color else colors.textPrimary
+            } else if (selectedMood == null) {
+              colors.textSecondary
+            } else {
+              colors.textMuted
+            },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
           )
