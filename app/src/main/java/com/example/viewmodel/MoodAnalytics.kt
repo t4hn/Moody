@@ -82,6 +82,58 @@ data class SleepAnalyticsSummary(
   val hasAnySleepData: Boolean = false,
 )
 
+enum class WellbeingMetric(
+  val label: String,
+  val shortTag: String,
+  val invertSemanticScale: Boolean,
+) {
+  ENERGY(label = "Energy", shortTag = "E", invertSemanticScale = false),
+  STRESS(label = "Stress", shortTag = "S", invertSemanticScale = true),
+  ANXIETY(label = "Anxiety", shortTag = "A", invertSemanticScale = true),
+}
+
+data class WellbeingHistoryPoint(
+  val dayStartMillis: Long,
+  val label: String,
+  val averageValue: Float?,
+  val entryCount: Int = 0,
+)
+
+data class WellbeingMetricSummary(
+  val metric: WellbeingMetric,
+  val average: Float? = null,
+  val entryCount: Int = 0,
+  val history: List<WellbeingHistoryPoint> = emptyList(),
+) {
+  val hasData: Boolean
+    get() = entryCount > 0 && average != null
+}
+
+data class WeekdayWellbeingAverage(
+  val weekdayIndex: Int, // 0 = Monday .. 6 = Sunday
+  val weekdayLabel: String,
+  val shortLabel: String,
+  val energyAverage: Float? = null,
+  val energyDayCount: Int = 0,
+  val stressAverage: Float? = null,
+  val stressDayCount: Int = 0,
+  val anxietyAverage: Float? = null,
+  val anxietyDayCount: Int = 0,
+) {
+  val hasAnyData: Boolean
+    get() = energyAverage != null || stressAverage != null || anxietyAverage != null
+}
+
+data class WellbeingAnalyticsSummary(
+  val energy: WellbeingMetricSummary = WellbeingMetricSummary(WellbeingMetric.ENERGY),
+  val stress: WellbeingMetricSummary = WellbeingMetricSummary(WellbeingMetric.STRESS),
+  val anxiety: WellbeingMetricSummary = WellbeingMetricSummary(WellbeingMetric.ANXIETY),
+  val weekdayAverages: List<WeekdayWellbeingAverage> = emptyList(),
+) {
+  val hasAnyWellbeingData: Boolean
+    get() = energy.hasData || stress.hasData || anxiety.hasData
+}
+
 object MoodAnalytics {
 
   private val defaultSuggestedTags = listOf(
@@ -436,6 +488,135 @@ object MoodAnalytics {
       qualityHistory = qualityHistory,
       weekdayAverages = weekdayAverages,
       hasAnySleepData = qualityNightCount > 0 || durationNightCount > 0,
+    )
+  }
+
+  fun computeWellbeingAnalytics(
+    entries: List<MoodEntry>,
+    range: InsightTimeRange,
+    nowMillis: Long = System.currentTimeMillis(),
+    timeZone: TimeZone = TimeZone.getDefault(),
+  ): WellbeingAnalyticsSummary {
+    val todayStart = DateTimeUtils.startOfDayMillis(nowMillis, timeZone)
+    val weekStart = DateTimeUtils.daysAgoStartMillis(6, nowMillis, timeZone)
+    val monthStart = DateTimeUtils.daysAgoStartMillis(29, nowMillis, timeZone)
+
+    val filteredWithDay = entries.mapNotNull { entry ->
+      val dayStart = DateTimeUtils.startOfDayMillis(entry.timestamp, timeZone)
+      val included = when (range) {
+        InsightTimeRange.DAY -> dayStart == todayStart
+        InsightTimeRange.WEEK -> dayStart in weekStart..todayStart
+        InsightTimeRange.MONTH -> dayStart in monthStart..todayStart
+        InsightTimeRange.ALL -> true
+      }
+      if (included) dayStart to entry else null
+    }
+
+    fun computeMetric(
+      metric: WellbeingMetric,
+      selector: (MoodEntry) -> Int?,
+    ): Pair<WellbeingMetricSummary, Map<Long, Float>> {
+      val validSamples = filteredWithDay.mapNotNull { (dayStart, entry) ->
+        val score = selector(entry)?.takeIf { it in 1..5 } ?: return@mapNotNull null
+        dayStart to score
+      }
+
+      if (validSamples.isEmpty()) {
+        return WellbeingMetricSummary(metric = metric) to emptyMap()
+      }
+
+      val overallAverage = validSamples.map { it.second }.average().toFloat()
+      val groupedByDay = validSamples.groupBy(
+        keySelector = { it.first },
+        valueTransform = { it.second },
+      )
+      val dailyAverageByDay = groupedByDay.mapValues { (_, scores) ->
+        scores.average().toFloat()
+      }
+
+      val (spanStart, spanEnd) = when (range) {
+        InsightTimeRange.DAY -> todayStart to todayStart
+        InsightTimeRange.WEEK -> weekStart to todayStart
+        InsightTimeRange.MONTH -> monthStart to todayStart
+        InsightTimeRange.ALL -> dailyAverageByDay.keys.min() to dailyAverageByDay.keys.max()
+      }
+
+      val approxDays = ((spanEnd - spanStart) / 86_400_000L).coerceAtLeast(0L)
+      val history = if (approxDays > 1095L) {
+        dailyAverageByDay.keys.sorted().map { dayStart ->
+          WellbeingHistoryPoint(
+            dayStartMillis = dayStart,
+            label = DateTimeUtils.formatShortDate(dayStart, timeZone),
+            averageValue = dailyAverageByDay[dayStart],
+            entryCount = groupedByDay[dayStart]?.size ?: 0,
+          )
+        }
+      } else {
+        buildList {
+          var cursor = spanStart
+          var guard = 0
+          while (cursor <= spanEnd && guard < 1200) {
+            add(
+              WellbeingHistoryPoint(
+                dayStartMillis = cursor,
+                label = DateTimeUtils.formatShortDate(cursor, timeZone),
+                averageValue = dailyAverageByDay[cursor],
+                entryCount = groupedByDay[cursor]?.size ?: 0,
+              ),
+            )
+            cursor = DateTimeUtils.nextDayStartMillis(cursor, timeZone)
+            guard++
+          }
+        }
+      }
+
+      return WellbeingMetricSummary(
+        metric = metric,
+        average = overallAverage,
+        entryCount = validSamples.size,
+        history = history,
+      ) to dailyAverageByDay
+    }
+
+    val (energySummary, energyByDay) = computeMetric(WellbeingMetric.ENERGY) { it.energyLevel }
+    val (stressSummary, stressByDay) = computeMetric(WellbeingMetric.STRESS) { it.stressLevel }
+    val (anxietySummary, anxietyByDay) = computeMetric(WellbeingMetric.ANXIETY) { it.anxietyLevel }
+
+    fun groupDailyByWeekday(dailyMap: Map<Long, Float>): Map<Int, List<Float>> {
+      val buckets = HashMap<Int, MutableList<Float>>(7)
+      dailyMap.forEach { (dayStart, dailyAvg) ->
+        val dow = DateTimeUtils.weekdayMondayFirstIndex(dayStart, timeZone)
+        buckets.getOrPut(dow) { mutableListOf() }.add(dailyAvg)
+      }
+      return buckets
+    }
+
+    val energyByWeekday = groupDailyByWeekday(energyByDay)
+    val stressByWeekday = groupDailyByWeekday(stressByDay)
+    val anxietyByWeekday = groupDailyByWeekday(anxietyByDay)
+
+    val weekdayAverages = weekdayDefinitions.mapIndexed { idx, (fullName, shortName) ->
+      val energyDays = energyByWeekday[idx].orEmpty()
+      val stressDays = stressByWeekday[idx].orEmpty()
+      val anxietyDays = anxietyByWeekday[idx].orEmpty()
+      WeekdayWellbeingAverage(
+        weekdayIndex = idx,
+        weekdayLabel = fullName,
+        shortLabel = shortName,
+        energyAverage = if (energyDays.isNotEmpty()) energyDays.average().toFloat() else null,
+        energyDayCount = energyDays.size,
+        stressAverage = if (stressDays.isNotEmpty()) stressDays.average().toFloat() else null,
+        stressDayCount = stressDays.size,
+        anxietyAverage = if (anxietyDays.isNotEmpty()) anxietyDays.average().toFloat() else null,
+        anxietyDayCount = anxietyDays.size,
+      )
+    }
+
+    return WellbeingAnalyticsSummary(
+      energy = energySummary,
+      stress = stressSummary,
+      anxiety = anxietySummary,
+      weekdayAverages = weekdayAverages,
     )
   }
 }

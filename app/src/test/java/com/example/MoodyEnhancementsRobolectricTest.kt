@@ -3,12 +3,26 @@ package com.example
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import androidx.activity.ComponentDialog
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotFocused
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
+import androidx.core.graphics.Insets
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.ImportValidationResult
@@ -39,6 +53,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowDialog
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -391,5 +406,283 @@ class MoodyEnhancementsRobolectricTest {
     composeRule.onNodeWithTag("sleep_weekday_card").performScrollTo().assertIsDisplayed()
     composeRule.onNodeWithText("Monday").assertIsDisplayed()
     composeRule.onNodeWithText("Sunday").assertIsDisplayed()
+  }
+
+  @Test
+  fun `hiding keyboard via hide button, back press, or outside tap keeps entry details open and preserves unsaved data`() {
+    val entry = MoodEntry(
+      id = "kbd-entry-1",
+      mood = 4,
+      timestamp = 1_763_885_644_000L,
+      note = "",
+      tags = listOf("calm"),
+    )
+    var dismissCount = 0
+
+    composeRule.setContent {
+      MoodyTheme(appearanceMode = AppearanceMode.DARK, palette = MoodyPalette.TEAL_OBSIDIAN) {
+        EntryDetailSheet(
+          entry = entry,
+          suggestedTags = listOf("calm", "focused"),
+          onSave = { _, _ -> },
+          onDelete = {},
+          onDismiss = { dismissCount++ },
+        )
+      }
+    }
+    composeRule.waitForIdle()
+
+    val dialog = ShadowDialog.getLatestDialog() as ComponentDialog
+    val decorView = dialog.window!!.decorView
+
+    fun dispatchImeVisible(visible: Boolean) {
+      composeRule.runOnUiThread {
+        val insets = WindowInsetsCompat.Builder()
+          .setInsets(
+            WindowInsetsCompat.Type.ime(),
+            if (visible) Insets.of(0, 0, 0, 600) else Insets.NONE,
+          )
+          .setVisible(WindowInsetsCompat.Type.ime(), visible)
+          .build()
+        ViewCompat.dispatchApplyWindowInsets(decorView, insets)
+      }
+      composeRule.waitForIdle()
+    }
+
+    // Populate Additional Context first (without saving) to verify unsaved context survives
+    composeRule.onNodeWithTag("additional_context_toggle").performScrollTo().performClick()
+    composeRule.onNodeWithTag("sleep_quality_4").performScrollTo().performClick()
+    composeRule.onNodeWithTag("energy_level_5").performScrollTo().performClick()
+    composeRule.waitForIdle()
+
+    // Focus Note field, show IME, enter text, then hide keyboard (simulating keyboard hide button)
+    composeRule.onNodeWithTag("entry_note_input").performScrollTo().performClick()
+    dispatchImeVisible(true)
+    composeRule.onNodeWithTag("entry_note_input").assertIsFocused()
+    composeRule.onNodeWithTag("entry_note_input").performTextInput("First line")
+    composeRule.waitForIdle()
+
+    dispatchImeVisible(false)
+    composeRule.mainClock.advanceTimeBy(450L)
+    composeRule.waitForIdle()
+
+    assertEquals(0, dismissCount)
+    composeRule.onNodeWithTag("entry_detail_sheet_content").assertIsDisplayed()
+    composeRule.onNodeWithTag("entry_note_input").assertIsNotFocused()
+    composeRule.onNodeWithText("First line").assertIsDisplayed()
+
+    // Reopen keyboard, add more text, and dismiss via Back button
+    composeRule.onNodeWithTag("entry_note_input").performScrollTo().performClick()
+    dispatchImeVisible(true)
+    composeRule.onNodeWithTag("entry_note_input").assertIsFocused()
+    composeRule.onNodeWithTag("entry_note_input").performTextInput(" + second line")
+    composeRule.waitForIdle()
+
+    composeRule.runOnUiThread {
+      dialog.onBackPressedDispatcher.onBackPressed()
+    }
+    dispatchImeVisible(false)
+    composeRule.mainClock.advanceTimeBy(450L)
+    composeRule.waitForIdle()
+
+    assertEquals(0, dismissCount)
+    composeRule.onNodeWithTag("entry_detail_sheet_content").assertIsDisplayed()
+    composeRule.onNodeWithTag("entry_note_input").assertIsNotFocused()
+    composeRule.onNodeWithText("First line + second line").assertIsDisplayed()
+
+    // Add tag, then tap outside text field on non-input sheet area to release focus
+    composeRule.onNodeWithTag("entry_tag_input").performScrollTo().performClick()
+    dispatchImeVisible(true)
+    composeRule.onNodeWithTag("entry_tag_input").performTextInput("evening")
+    composeRule.onNodeWithTag("add_tag_button").performClick()
+    composeRule.onNodeWithTag("entry_note_input").performScrollTo().performClick()
+    composeRule.onNodeWithTag("entry_note_input").assertIsFocused()
+
+    composeRule.onNodeWithTag("entry_detail_sheet_content").performTouchInput {
+      click(topLeft)
+    }
+    dispatchImeVisible(false)
+    composeRule.mainClock.advanceTimeBy(450L)
+    composeRule.waitForIdle()
+
+    assertEquals(0, dismissCount)
+    composeRule.onNodeWithTag("entry_detail_sheet_content").assertIsDisplayed()
+    composeRule.onNodeWithText("#evening").performScrollTo().assertIsDisplayed()
+    composeRule.onNodeWithText("Sleep 4/5 · Energy 5/5").assertIsDisplayed()
+
+    // Now that keyboard is already hidden, system Back dismisses Entry Details
+    composeRule.runOnUiThread {
+      dialog.onBackPressedDispatcher.onBackPressed()
+    }
+    composeRule.waitForIdle()
+    assertEquals(1, dismissCount)
+  }
+
+  @Test
+  fun `intentional swipe down on drag handle still dismisses entry details sheet`() {
+    val entry = MoodEntry(
+      id = "swipe-entry-1",
+      mood = 3,
+      timestamp = 1_763_885_644_000L,
+    )
+    var dismissCount = 0
+
+    composeRule.setContent {
+      MoodyTheme(appearanceMode = AppearanceMode.DARK, palette = MoodyPalette.TEAL_OBSIDIAN) {
+        EntryDetailSheet(
+          entry = entry,
+          suggestedTags = emptyList(),
+          onSave = { _, _ -> },
+          onDelete = {},
+          onDismiss = { dismissCount++ },
+        )
+      }
+    }
+    composeRule.waitForIdle()
+
+    composeRule.onNodeWithTag("entry_sheet_drag_handle").performTouchInput {
+      swipeDown()
+    }
+    composeRule.waitForIdle()
+
+    assertEquals(1, dismissCount)
+  }
+
+  @Test
+  fun `insights screen renders wellbeing empty state when no wellbeing metrics exist in period`() {
+    val now = 1_764_140_000_000L
+    val entries = listOf(MoodEntry(id = "plain-1", mood = 4, timestamp = now))
+    val emptyWellbeingState = MoodyUiState(
+      allEntries = entries,
+      insightRange = InsightTimeRange.WEEK,
+      sleepAnalytics = MoodAnalytics.computeSleepAnalytics(emptyList(), InsightTimeRange.WEEK, now),
+      wellbeingAnalytics = MoodAnalytics.computeWellbeingAnalytics(entries, InsightTimeRange.WEEK, now),
+    )
+
+    composeRule.setContent {
+      MoodyTheme(appearanceMode = AppearanceMode.DARK, palette = MoodyPalette.TEAL_OBSIDIAN) {
+        InsightsScreen(
+          uiState = emptyWellbeingState,
+          onSelectRange = {},
+          onSelectHeatmapDay = {},
+          onSelectTimeOfDayMode = {},
+        )
+      }
+    }
+    composeRule.waitForIdle()
+
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("wellbeing_header"))
+    composeRule.onNodeWithTag("wellbeing_header").assertIsDisplayed()
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("wellbeing_empty_state"))
+    composeRule.onNodeWithText("No wellbeing data recorded for this period.").assertIsDisplayed()
+  }
+
+  @Test
+  fun `insights screen displays populated wellbeing tiles, three charts, and 7-day weekday comparison`() {
+    val now = 1_764_140_000_000L
+    val entries = listOf(
+      MoodEntry(
+        id = "wb-1",
+        mood = 4,
+        timestamp = now,
+        energyLevel = 4,
+        stressLevel = 2,
+        anxietyLevel = 1,
+      ),
+      MoodEntry(
+        id = "wb-2",
+        mood = 3,
+        timestamp = now - 86_400_000L,
+        energyLevel = 3,
+        stressLevel = 4,
+        anxietyLevel = 3,
+      ),
+    )
+    val state = MoodyUiState(
+      allEntries = entries,
+      insightRange = InsightTimeRange.WEEK,
+      sleepAnalytics = MoodAnalytics.computeSleepAnalytics(emptyList(), InsightTimeRange.WEEK, now),
+      wellbeingAnalytics = MoodAnalytics.computeWellbeingAnalytics(entries, InsightTimeRange.WEEK, now),
+    )
+
+    composeRule.setContent {
+      MoodyTheme(appearanceMode = AppearanceMode.DARK, palette = MoodyPalette.TEAL_OBSIDIAN) {
+        InsightsScreen(
+          uiState = state,
+          onSelectRange = {},
+          onSelectHeatmapDay = {},
+          onSelectTimeOfDayMode = {},
+        )
+      }
+    }
+    composeRule.waitForIdle()
+
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("wellbeing_stat_energy"))
+    composeRule.onNodeWithTag("wellbeing_stat_energy").assertIsDisplayed()
+    composeRule.onNodeWithTag("wellbeing_stat_stress").assertIsDisplayed()
+    composeRule.onNodeWithTag("wellbeing_stat_anxiety").assertIsDisplayed()
+    composeRule.onNodeWithText("Avg Energy").assertIsDisplayed()
+    composeRule.onNodeWithText("Avg Stress").assertIsDisplayed()
+    composeRule.onNodeWithText("Avg Anxiety").assertIsDisplayed()
+    composeRule.onAllNodesWithText("3.5 / 5").onFirst().assertIsDisplayed()
+    composeRule.onAllNodesWithText("3.0 / 5").onFirst().assertIsDisplayed()
+    composeRule.onAllNodesWithText("2.0 / 5").onFirst().assertIsDisplayed()
+    assertTrue(composeRule.onAllNodesWithText("2 entries").fetchSemanticsNodes().size >= 3)
+
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("wellbeing_history_energy"))
+    composeRule.onNodeWithText("Energy Over Time").assertIsDisplayed()
+
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("wellbeing_history_stress"))
+    composeRule.onNodeWithText("Stress Over Time").assertIsDisplayed()
+
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("wellbeing_history_anxiety"))
+    composeRule.onNodeWithText("Anxiety Over Time").assertIsDisplayed()
+
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("wellbeing_weekday_card"))
+    composeRule.onNodeWithText("Wellbeing by Weekday").assertIsDisplayed()
+    listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday").forEach { day ->
+      composeRule.onNodeWithText(day).assertIsDisplayed()
+    }
+  }
+
+  @Test
+  fun `insights screen handles partial wellbeing data without hiding recorded metrics`() {
+    val now = 1_764_140_000_000L
+    val entries = listOf(
+      MoodEntry(
+        id = "partial-1",
+        mood = 4,
+        timestamp = now,
+        energyLevel = 5,
+        stressLevel = null,
+        anxietyLevel = 2,
+      ),
+    )
+    val state = MoodyUiState(
+      allEntries = entries,
+      insightRange = InsightTimeRange.WEEK,
+      sleepAnalytics = MoodAnalytics.computeSleepAnalytics(emptyList(), InsightTimeRange.WEEK, now),
+      wellbeingAnalytics = MoodAnalytics.computeWellbeingAnalytics(entries, InsightTimeRange.WEEK, now),
+    )
+
+    composeRule.setContent {
+      MoodyTheme(appearanceMode = AppearanceMode.LIGHT, palette = MoodyPalette.SAGE_DAYLIGHT) {
+        InsightsScreen(
+          uiState = state,
+          onSelectRange = {},
+          onSelectHeatmapDay = {},
+          onSelectTimeOfDayMode = {},
+        )
+      }
+    }
+    composeRule.waitForIdle()
+
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("wellbeing_stat_energy"))
+    composeRule.onAllNodesWithText("5.0 / 5").onFirst().assertIsDisplayed()
+    composeRule.onAllNodesWithText("2.0 / 5").onFirst().assertIsDisplayed()
+    composeRule.onNodeWithText("No entries").assertIsDisplayed()
+
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("wellbeing_history_stress"))
+    composeRule.onNodeWithText("No stress data recorded for this period.").assertIsDisplayed()
   }
 }

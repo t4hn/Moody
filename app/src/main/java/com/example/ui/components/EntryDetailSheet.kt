@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -8,6 +9,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,8 +18,10 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -36,6 +41,7 @@ import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,24 +50,34 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -75,6 +91,38 @@ import com.example.model.PhysicalActivityLevel
 import com.example.ui.theme.MoodyTheme
 import com.example.util.DateTimeUtils
 import java.util.Calendar
+import kotlin.math.hypot
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+internal enum class EntrySheetBackAction {
+  HIDE_KEYBOARD_ONLY,
+  DISMISS_SHEET,
+}
+
+internal fun resolveEntrySheetBackAction(isImeVisible: Boolean): EntrySheetBackAction =
+  if (isImeVisible) {
+    EntrySheetBackAction.HIDE_KEYBOARD_ONLY
+  } else {
+    EntrySheetBackAction.DISMISS_SHEET
+  }
+
+@OptIn(ExperimentalMaterial3Api::class)
+internal fun shouldConfirmEntrySheetValueChange(
+  targetValue: SheetValue,
+  isImeVisible: Boolean,
+  isImeClosing: Boolean,
+  isUserDraggingSheet: Boolean,
+  isExplicitDismissRequested: Boolean,
+): Boolean = when (targetValue) {
+  SheetValue.PartiallyExpanded -> false
+  SheetValue.Expanded -> true
+  SheetValue.Hidden ->
+    isExplicitDismissRequested ||
+      isUserDraggingSheet ||
+      (!isImeVisible && !isImeClosing)
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -87,7 +135,67 @@ fun EntryDetailSheet(
   onDismiss: () -> Unit,
 ) {
   val colors = MoodyTheme.colors
-  val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+  val scope = rememberCoroutineScope()
+  val focusManager = LocalFocusManager.current
+  val keyboardController = LocalSoftwareKeyboardController.current
+  val scrollState = rememberScrollState()
+
+  val isImeVisible = WindowInsets.isImeVisible
+  val latestIsImeVisible = rememberUpdatedState(isImeVisible)
+  var wasImeVisible by remember { mutableStateOf(isImeVisible) }
+  val isImeClosingState = remember { mutableStateOf(false) }
+  val isUserDraggingSheetState = remember(entry.id) { mutableStateOf(false) }
+  val isExplicitDismissRequestedState = remember(entry.id) { mutableStateOf(false) }
+  var imeClosingResetJob by remember { mutableStateOf<Job?>(null) }
+  var dragResetJob by remember { mutableStateOf<Job?>(null) }
+
+  var isNoteFocused by remember { mutableStateOf(false) }
+  var isTagFocused by remember { mutableStateOf(false) }
+
+  fun triggerImeClosingGuard() {
+    imeClosingResetJob?.cancel()
+    isImeClosingState.value = true
+    imeClosingResetJob = scope.launch {
+      delay(400L)
+      isImeClosingState.value = false
+    }
+  }
+
+  fun markUserDraggingSheet(dragging: Boolean) {
+    dragResetJob?.cancel()
+    if (dragging) {
+      isUserDraggingSheetState.value = true
+    } else {
+      dragResetJob = scope.launch {
+        delay(400L)
+        isUserDraggingSheetState.value = false
+      }
+    }
+  }
+
+  LaunchedEffect(isImeVisible) {
+    if (wasImeVisible && !isImeVisible) {
+      triggerImeClosingGuard()
+      focusManager.clearFocus()
+    } else if (isImeVisible) {
+      imeClosingResetJob?.cancel()
+      isImeClosingState.value = false
+    }
+    wasImeVisible = isImeVisible
+  }
+
+  val sheetState = rememberModalBottomSheetState(
+    skipPartiallyExpanded = true,
+    confirmValueChange = { targetValue ->
+      shouldConfirmEntrySheetValueChange(
+        targetValue = targetValue,
+        isImeVisible = latestIsImeVisible.value,
+        isImeClosing = isImeClosingState.value,
+        isUserDraggingSheet = isUserDraggingSheetState.value,
+        isExplicitDismissRequested = isExplicitDismissRequestedState.value,
+      )
+    },
+  )
   var mood by remember(entry.id) { mutableIntStateOf(entry.mood) }
   var timestamp by remember(entry.id) { mutableLongStateOf(entry.timestamp) }
   var note by remember(entry.id) { mutableStateOf(entry.note) }
@@ -153,19 +261,86 @@ fun EntryDetailSheet(
   }
 
   ModalBottomSheet(
-    onDismissRequest = onDismiss,
+    onDismissRequest = {
+      if (
+        shouldConfirmEntrySheetValueChange(
+          targetValue = SheetValue.Hidden,
+          isImeVisible = latestIsImeVisible.value,
+          isImeClosing = isImeClosingState.value,
+          isUserDraggingSheet = isUserDraggingSheetState.value,
+          isExplicitDismissRequested = isExplicitDismissRequestedState.value,
+        )
+      ) {
+        onDismiss()
+      }
+    },
     sheetState = sheetState,
+    properties = ModalBottomSheetProperties(shouldDismissOnBackPress = false),
+    dragHandle = {
+      Box(
+        modifier = Modifier
+          .fillMaxWidth()
+          .trackSheetDrag(
+            isDragHandle = true,
+            canScrollBackward = { false },
+            onDragStart = { markUserDraggingSheet(true) },
+            onDragEnd = { markUserDraggingSheet(false) },
+          )
+          .testTag("entry_sheet_drag_handle"),
+        contentAlignment = Alignment.Center,
+      ) {
+        BottomSheetDefaults.DragHandle()
+      }
+    },
     containerColor = colors.surfaceBase,
     contentColor = colors.textPrimary,
     shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
   ) {
+    BackHandler(
+      enabled = !showDatePicker && !showTimePicker && !showDeleteConfirmation,
+    ) {
+      when (resolveEntrySheetBackAction(isImeVisible = latestIsImeVisible.value)) {
+        EntrySheetBackAction.HIDE_KEYBOARD_ONLY -> {
+          triggerImeClosingGuard()
+          keyboardController?.hide()
+          focusManager.clearFocus()
+        }
+        EntrySheetBackAction.DISMISS_SHEET -> {
+          isExplicitDismissRequestedState.value = true
+          scope.launch {
+            sheetState.hide()
+          }.invokeOnCompletion {
+            if (!sheetState.isVisible) {
+              onDismiss()
+            } else {
+              isExplicitDismissRequestedState.value = false
+            }
+          }
+        }
+      }
+    }
+
     Column(
       modifier = Modifier
         .fillMaxWidth()
-        .verticalScroll(rememberScrollState())
+        .trackSheetDrag(
+          isDragHandle = false,
+          canScrollBackward = { scrollState.canScrollBackward },
+          onDragStart = { markUserDraggingSheet(true) },
+          onDragEnd = { markUserDraggingSheet(false) },
+        )
+        .dismissKeyboardOnOutsideTap {
+          if (latestIsImeVisible.value || isNoteFocused || isTagFocused) {
+            triggerImeClosingGuard()
+            keyboardController?.hide()
+            focusManager.clearFocus()
+          }
+        }
+        .verticalScroll(scrollState)
         .padding(horizontal = 20.dp)
         .padding(bottom = 24.dp)
-        .navigationBarsPadding(),
+        .navigationBarsPadding()
+        .testTag("entry_detail_sheet_content"),
     ) {
       Row(
         modifier = Modifier.fillMaxWidth(),
@@ -311,6 +486,9 @@ fun EntryDetailSheet(
         ),
         modifier = Modifier
           .fillMaxWidth()
+          .onFocusChanged { focusState ->
+            isNoteFocused = focusState.isFocused
+          }
           .testTag("entry_note_input"),
       )
 
@@ -383,6 +561,9 @@ fun EntryDetailSheet(
           ),
           modifier = Modifier
             .weight(1f)
+            .onFocusChanged { focusState ->
+              isTagFocused = focusState.isFocused
+            }
             .testTag("entry_tag_input"),
         )
         Surface(
@@ -739,6 +920,71 @@ fun EntryDetailSheet(
         }
       },
     )
+  }
+}
+
+private fun Modifier.trackSheetDrag(
+  isDragHandle: Boolean,
+  canScrollBackward: () -> Boolean,
+  onDragStart: () -> Unit,
+  onDragEnd: () -> Unit,
+): Modifier = pointerInput(isDragHandle) {
+  val touchSlop = viewConfiguration.touchSlop
+  awaitEachGesture {
+    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+    var dragStarted = false
+    var accumulatedDownwardDy = 0f
+    while (true) {
+      val event = awaitPointerEvent(PointerEventPass.Initial)
+      val change = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
+      if (change == null || !change.pressed) {
+        break
+      }
+      val dy = change.position.y - change.previousPosition.y
+      if (isDragHandle || !canScrollBackward()) {
+        if (dy > 0f) {
+          accumulatedDownwardDy += dy
+          if (!dragStarted && accumulatedDownwardDy > touchSlop) {
+            dragStarted = true
+            onDragStart()
+          }
+        } else if (dy < 0f && !dragStarted) {
+          accumulatedDownwardDy = (accumulatedDownwardDy + dy).coerceAtLeast(0f)
+        }
+      } else {
+        accumulatedDownwardDy = 0f
+      }
+    }
+    if (dragStarted) {
+      onDragEnd()
+    }
+  }
+}
+
+private fun Modifier.dismissKeyboardOnOutsideTap(
+  onTapOutside: () -> Unit,
+): Modifier = pointerInput(Unit) {
+  val touchSlop = viewConfiguration.touchSlop
+  awaitEachGesture {
+    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+    var moved = false
+    var totalDx = 0f
+    var totalDy = 0f
+    while (true) {
+      val event = awaitPointerEvent(PointerEventPass.Main)
+      val change = event.changes.firstOrNull { it.id == down.id } ?: break
+      totalDx += change.position.x - change.previousPosition.x
+      totalDy += change.position.y - change.previousPosition.y
+      if (hypot(totalDx, totalDy) > touchSlop) {
+        moved = true
+      }
+      if (!change.pressed) {
+        if (!moved && !change.isConsumed) {
+          onTapOutside()
+        }
+        break
+      }
+    }
   }
 }
 

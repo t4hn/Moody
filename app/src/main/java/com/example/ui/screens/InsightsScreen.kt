@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoGraph
 import androidx.compose.material.icons.outlined.Bedtime
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.LocalFireDepartment
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -46,6 +47,8 @@ import com.example.ui.components.SectionHeader
 import com.example.ui.components.SleepQualityByWeekdayChart
 import com.example.ui.components.SleepQualityLineChart
 import com.example.ui.components.TimeOfDayChart
+import com.example.ui.components.WellbeingByWeekdayChart
+import com.example.ui.components.WellbeingMetricLineChart
 import com.example.ui.theme.MoodColor4
 import com.example.ui.theme.MoodyTheme
 import com.example.ui.theme.moodColorInterpolated
@@ -53,6 +56,7 @@ import com.example.viewmodel.InsightTimeRange
 import com.example.viewmodel.MoodAnalytics
 import com.example.viewmodel.MoodyUiState
 import com.example.viewmodel.TimeOfDayMode
+import com.example.viewmodel.WellbeingMetricSummary
 
 @Composable
 fun InsightsScreen(
@@ -83,7 +87,8 @@ fun InsightsScreen(
     LazyColumn(
       modifier = Modifier
         .fillMaxSize()
-        .widthIn(max = 640.dp),
+        .widthIn(max = 640.dp)
+        .testTag("insights_list"),
       contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 104.dp),
       verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -482,8 +487,229 @@ fun InsightsScreen(
           }
         }
       }
+
+      if (uiState.allEntries.isNotEmpty() || uiState.wellbeingAnalytics.hasAnyWellbeingData) {
+        val wellbeing = uiState.wellbeingAnalytics
+
+        item {
+          Spacer(modifier = Modifier.height(6.dp))
+          SectionHeader(
+            title = "Wellbeing",
+            trailing = {
+              Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = colors.cardSurfaceElevated,
+                border = BorderStroke(1.dp, colors.border),
+              ) {
+                Text(
+                  text = uiState.insightRange.label,
+                  style = MaterialTheme.typography.labelSmall,
+                  color = colors.textSecondary,
+                  modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                )
+              }
+            },
+            modifier = Modifier.testTag("wellbeing_header"),
+          )
+        }
+
+        if (!wellbeing.hasAnyWellbeingData) {
+          item {
+            GlassCard(
+              cornerRadius = 24.dp,
+              modifier = Modifier.testTag("wellbeing_empty_state"),
+            ) {
+              Column(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(horizontal = 24.dp, vertical = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+              ) {
+                Box(
+                  modifier = Modifier
+                    .size(46.dp)
+                    .background(colors.accentPrimary.copy(alpha = 0.14f), CircleShape),
+                  contentAlignment = Alignment.Center,
+                ) {
+                  Icon(
+                    imageVector = Icons.Outlined.FavoriteBorder,
+                    contentDescription = null,
+                    tint = colors.accentPrimary,
+                  )
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                  text = "No wellbeing data recorded for this period.",
+                  style = MaterialTheme.typography.titleMedium,
+                  color = colors.textPrimary,
+                  textAlign = TextAlign.Center,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                  text = "Add energy, stress, and anxiety in Entry Details.",
+                  style = MaterialTheme.typography.bodySmall,
+                  color = colors.textMuted,
+                  textAlign = TextAlign.Center,
+                )
+              }
+            }
+          }
+        } else {
+          // A. Average Wellbeing Scores (Energy, Stress, Anxiety)
+          item {
+            Row(
+              modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Max),
+              horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+              WellbeingStatTile(
+                summary = wellbeing.energy,
+                label = "Avg Energy",
+                modifier = Modifier
+                  .weight(1f)
+                  .fillMaxHeight()
+                  .testTag("wellbeing_stat_energy"),
+              )
+              WellbeingStatTile(
+                summary = wellbeing.stress,
+                label = "Avg Stress",
+                modifier = Modifier
+                  .weight(1f)
+                  .fillMaxHeight()
+                  .testTag("wellbeing_stat_stress"),
+              )
+              WellbeingStatTile(
+                summary = wellbeing.anxiety,
+                label = "Avg Anxiety",
+                modifier = Modifier
+                  .weight(1f)
+                  .fillMaxHeight()
+                  .testTag("wellbeing_stat_anxiety"),
+              )
+            }
+          }
+
+          // B. Wellbeing History Trends (3 separate graphs)
+          item {
+            GlassCard(
+              cornerRadius = 24.dp,
+              modifier = Modifier.testTag("wellbeing_history_energy"),
+            ) {
+              Column(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(18.dp),
+              ) {
+                Text(
+                  text = "Energy Over Time",
+                  style = MaterialTheme.typography.titleLarge,
+                  color = colors.textPrimary,
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                WellbeingMetricLineChart(summary = wellbeing.energy)
+              }
+            }
+          }
+
+          item {
+            GlassCard(
+              cornerRadius = 24.dp,
+              modifier = Modifier.testTag("wellbeing_history_stress"),
+            ) {
+              Column(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(18.dp),
+              ) {
+                Text(
+                  text = "Stress Over Time",
+                  style = MaterialTheme.typography.titleLarge,
+                  color = colors.textPrimary,
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                WellbeingMetricLineChart(summary = wellbeing.stress)
+              }
+            }
+          }
+
+          item {
+            GlassCard(
+              cornerRadius = 24.dp,
+              modifier = Modifier.testTag("wellbeing_history_anxiety"),
+            ) {
+              Column(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(18.dp),
+              ) {
+                Text(
+                  text = "Anxiety Over Time",
+                  style = MaterialTheme.typography.titleLarge,
+                  color = colors.textPrimary,
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                WellbeingMetricLineChart(summary = wellbeing.anxiety)
+              }
+            }
+          }
+
+          // C. Wellbeing by Weekday
+          item {
+            GlassCard(
+              cornerRadius = 24.dp,
+              modifier = Modifier.testTag("wellbeing_weekday_card"),
+            ) {
+              Column(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(18.dp),
+              ) {
+                Text(
+                  text = "Wellbeing by Weekday",
+                  style = MaterialTheme.typography.titleLarge,
+                  color = colors.textPrimary,
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                WellbeingByWeekdayChart(weekdays = wellbeing.weekdayAverages)
+              }
+            }
+          }
+        }
+      }
     }
   }
+}
+
+@Composable
+private fun WellbeingStatTile(
+  summary: WellbeingMetricSummary,
+  label: String,
+  modifier: Modifier = Modifier,
+) {
+  val colors = MoodyTheme.colors
+  val indicatorColor = summary.average?.let {
+    moodColorInterpolated(it, invertScale = summary.metric.invertSemanticScale)
+  }
+  val valueTextAccent = when {
+    indicatorColor == null -> colors.textMuted
+    colors.isDark -> indicatorColor
+    else -> colors.textPrimary
+  }
+  val countLabel = if (summary.entryCount > 0) {
+    "${summary.entryCount} ${if (summary.entryCount == 1) "entry" else "entries"}"
+  } else {
+    "No entries"
+  }
+
+  SleepStatTile(
+    label = label,
+    value = summary.average?.let { "${MoodAnalytics.formatScore(it)} / 5" } ?: "—",
+    subtitle = countLabel,
+    valueColor = valueTextAccent,
+    indicatorColor = indicatorColor,
+    modifier = modifier,
+  )
 }
 
 @Composable

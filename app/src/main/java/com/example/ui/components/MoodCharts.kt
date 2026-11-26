@@ -304,7 +304,7 @@ fun MoodLineChart(
   }
 }
 
-private fun findClosestPointIndex(x: Float, width: Float, count: Int): Int {
+internal fun findClosestPointIndex(x: Float, width: Float, count: Int): Int {
   if (count <= 1) return 0
   val pad = 10f
   val plotW = (width - pad * 2).coerceAtLeast(1f)

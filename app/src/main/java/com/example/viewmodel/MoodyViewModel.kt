@@ -78,6 +78,11 @@ class MoodyViewModel(application: Application) : AndroidViewModel(application) {
       range = ctrl.insightRange,
       nowMillis = now,
     )
+    val wellbeingAnalytics = MoodAnalytics.computeWellbeingAnalytics(
+      entries = entries,
+      range = ctrl.insightRange,
+      nowMillis = now,
+    )
     val suggestedTags = MoodAnalytics.computeSuggestedTags(entries)
     val allUsedTags = entries
       .flatMap { it.tags }
@@ -118,6 +123,7 @@ class MoodyViewModel(application: Application) : AndroidViewModel(application) {
       timeOfDayMode = ctrl.timeOfDayMode,
       timeOfDayBuckets = todBuckets,
       sleepAnalytics = sleepAnalytics,
+      wellbeingAnalytics = wellbeingAnalytics,
       searchQuery = ctrl.searchQuery,
       selectedFilterTags = ctrl.selectedFilterTags,
       dateFilter = ctrl.dateFilter,

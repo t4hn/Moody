@@ -40,6 +40,7 @@ data class MoodyUiState(
   val timeOfDayMode: TimeOfDayMode = TimeOfDayMode.PART_OF_DAY,
   val timeOfDayBuckets: List<TimeOfDayBucket> = emptyList(),
   val sleepAnalytics: SleepAnalyticsSummary = SleepAnalyticsSummary(),
+  val wellbeingAnalytics: WellbeingAnalyticsSummary = WellbeingAnalyticsSummary(),
 
   // History
   val searchQuery: String = "",

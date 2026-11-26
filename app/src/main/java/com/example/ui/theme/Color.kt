@@ -29,8 +29,9 @@ fun moodColorForLevel(level: Int): Color =
     else -> MoodColor5
   }
 
-fun moodColorInterpolated(value: Float): Color {
-  val clamped = value.coerceIn(1f, 5f)
+fun moodColorInterpolated(value: Float, invertScale: Boolean = false): Color {
+  val mapped = if (invertScale) 6f - value else value
+  val clamped = mapped.coerceIn(1f, 5f)
   val index = (clamped - 1f).toInt().coerceIn(0, 3)
   val fraction = (clamped - 1f) - index
   return lerp(MoodSpectrumStops[index], MoodSpectrumStops[index + 1], fraction)

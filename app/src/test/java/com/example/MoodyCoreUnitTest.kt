@@ -353,4 +353,271 @@ class MoodyCoreUnitTest {
     assertNull(DateTimeUtils.parseDayKeyStartMillisOrNull("2026-02-30", tz))
     assertNull(DateTimeUtils.parseDayKeyStartMillisOrNull("not-a-date", tz))
   }
+
+  @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+  @Test
+  fun `entry sheet state guard blocks accidental hidden transition during ime open or closing`() {
+    assertFalse(
+      com.example.ui.components.shouldConfirmEntrySheetValueChange(
+        targetValue = androidx.compose.material3.SheetValue.Hidden,
+        isImeVisible = true,
+        isImeClosing = false,
+        isUserDraggingSheet = false,
+        isExplicitDismissRequested = false,
+      ),
+    )
+    assertFalse(
+      com.example.ui.components.shouldConfirmEntrySheetValueChange(
+        targetValue = androidx.compose.material3.SheetValue.Hidden,
+        isImeVisible = false,
+        isImeClosing = true,
+        isUserDraggingSheet = false,
+        isExplicitDismissRequested = false,
+      ),
+    )
+    assertFalse(
+      com.example.ui.components.shouldConfirmEntrySheetValueChange(
+        targetValue = androidx.compose.material3.SheetValue.PartiallyExpanded,
+        isImeVisible = false,
+        isImeClosing = false,
+        isUserDraggingSheet = true,
+        isExplicitDismissRequested = true,
+      ),
+    )
+    // Intentional swipe down succeeds even while keyboard is visible or closing
+    assertTrue(
+      com.example.ui.components.shouldConfirmEntrySheetValueChange(
+        targetValue = androidx.compose.material3.SheetValue.Hidden,
+        isImeVisible = true,
+        isImeClosing = true,
+        isUserDraggingSheet = true,
+        isExplicitDismissRequested = false,
+      ),
+    )
+    // Explicit dismiss or idle dismiss succeeds when keyboard is closed
+    assertTrue(
+      com.example.ui.components.shouldConfirmEntrySheetValueChange(
+        targetValue = androidx.compose.material3.SheetValue.Hidden,
+        isImeVisible = false,
+        isImeClosing = false,
+        isUserDraggingSheet = false,
+        isExplicitDismissRequested = false,
+      ),
+    )
+    assertTrue(
+      com.example.ui.components.shouldConfirmEntrySheetValueChange(
+        targetValue = androidx.compose.material3.SheetValue.Hidden,
+        isImeVisible = false,
+        isImeClosing = true,
+        isUserDraggingSheet = false,
+        isExplicitDismissRequested = true,
+      ),
+    )
+  }
+
+  @Test
+  fun `entry sheet back action hides keyboard first when visible and dismisses sheet when hidden`() {
+    assertEquals(
+      com.example.ui.components.EntrySheetBackAction.HIDE_KEYBOARD_ONLY,
+      com.example.ui.components.resolveEntrySheetBackAction(isImeVisible = true),
+    )
+    assertEquals(
+      com.example.ui.components.EntrySheetBackAction.DISMISS_SHEET,
+      com.example.ui.components.resolveEntrySheetBackAction(isImeVisible = false),
+    )
+  }
+
+  @Test
+  fun `wellbeing semantic colors keep energy 1-to-5 red-to-green and invert stress and anxiety`() {
+    assertEquals(MoodColor1.toArgb(), com.example.ui.theme.moodColorInterpolated(1f, invertScale = false).toArgb())
+    assertEquals(MoodColor5.toArgb(), com.example.ui.theme.moodColorInterpolated(5f, invertScale = false).toArgb())
+
+    // Inverted for Stress & Anxiety: 1 = Green, 2 = Lime, 3 = Yellow, 4 = Orange, 5 = Red
+    assertEquals(MoodColor5.toArgb(), com.example.ui.theme.moodColorInterpolated(1f, invertScale = true).toArgb())
+    assertEquals(MoodColor4.toArgb(), com.example.ui.theme.moodColorInterpolated(2f, invertScale = true).toArgb())
+    assertEquals(MoodColor3.toArgb(), com.example.ui.theme.moodColorInterpolated(3f, invertScale = true).toArgb())
+    assertEquals(MoodColor2.toArgb(), com.example.ui.theme.moodColorInterpolated(4f, invertScale = true).toArgb())
+    assertEquals(MoodColor1.toArgb(), com.example.ui.theme.moodColorInterpolated(5f, invertScale = true).toArgb())
+  }
+
+  @Test
+  fun `wellbeing analytics computes independent averages, excludes invalid scores, and handles missing values`() {
+    val tz = TimeZone.getTimeZone("UTC")
+    val day25 = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-11-25", tz)!! + 10 * 3_600_000L
+    val day24 = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-11-24", tz)!! + 10 * 3_600_000L
+
+    val entries = listOf(
+      // Valid Energy=5, Stress=2, Anxiety=null
+      MoodEntry(id = "w1", mood = 4, timestamp = day25, energyLevel = 5, stressLevel = 2, anxietyLevel = null),
+      // Invalid Energy=0 & 6 should be excluded; valid Stress=4, Anxiety=1 kept
+      MoodEntry(id = "w2", mood = 3, timestamp = day25 + 3_600_000L, energyLevel = 0, stressLevel = 4, anxietyLevel = 1),
+      MoodEntry(id = "w3", mood = 3, timestamp = day24, energyLevel = 6, stressLevel = -1, anxietyLevel = 5),
+      // Valid Energy=3, Stress=null, Anxiety=9 (invalid)
+      MoodEntry(id = "w4", mood = 4, timestamp = day24 + 3_600_000L, energyLevel = 3, stressLevel = null, anxietyLevel = 9),
+    )
+
+    val summary = MoodAnalytics.computeWellbeingAnalytics(entries, InsightTimeRange.WEEK, day25, tz)
+    assertTrue(summary.hasAnyWellbeingData)
+
+    // Energy: valid [5, 3] -> 4.0 across 2 entries
+    assertEquals(2, summary.energy.entryCount)
+    assertEquals(4.0f, summary.energy.average!!, 0.001f)
+
+    // Stress: valid [2, 4] -> 3.0 across 2 entries
+    assertEquals(2, summary.stress.entryCount)
+    assertEquals(3.0f, summary.stress.average!!, 0.001f)
+
+    // Anxiety: valid [1, 5] -> 3.0 across 2 entries
+    assertEquals(2, summary.anxiety.entryCount)
+    assertEquals(3.0f, summary.anxiety.average!!, 0.001f)
+  }
+
+  @Test
+  fun `wellbeing trends average same-day entries and leave missing calendar days null`() {
+    val tz = TimeZone.getTimeZone("UTC")
+    // 2026-11-25 is Wednesday
+    val now = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-11-25", tz)!! + 14 * 3_600_000L
+    val nov25 = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-11-25", tz)!!
+    val nov23 = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-11-23", tz)!!
+
+    val entries = listOf(
+      MoodEntry(id = "d1", mood = 4, timestamp = nov25 + 9 * 3_600_000L, energyLevel = 2, stressLevel = 4),
+      MoodEntry(id = "d2", mood = 5, timestamp = nov25 + 13 * 3_600_000L, energyLevel = 5, stressLevel = 2),
+      MoodEntry(id = "d3", mood = 3, timestamp = nov23 + 11 * 3_600_000L, energyLevel = 4, stressLevel = null),
+    )
+
+    val summary = MoodAnalytics.computeWellbeingAnalytics(entries, InsightTimeRange.WEEK, now, tz)
+
+    // Week has 7 calendar days: Nov 19..Nov 25
+    assertEquals(7, summary.energy.history.size)
+    assertNull(summary.energy.history[0].averageValue) // Nov 19 missing
+    assertEquals(4.0f, summary.energy.history[4].averageValue!!, 0.001f) // Nov 23
+    assertNull(summary.energy.history[5].averageValue) // Nov 24 missing (no interpolation)
+    assertEquals(3.5f, summary.energy.history[6].averageValue!!, 0.001f) // Nov 25 avg (2+5)/2
+    assertEquals(2, summary.energy.history[6].entryCount)
+
+    // Stress only recorded on Nov 25 -> Nov 23 remains null
+    assertEquals(7, summary.stress.history.size)
+    assertNull(summary.stress.history[4].averageValue)
+    assertEquals(3.0f, summary.stress.history[6].averageValue!!, 0.001f)
+
+    // Anxiety has no entries at all
+    assertFalse(summary.anxiety.hasData)
+    assertEquals(0, summary.anxiety.entryCount)
+    assertTrue(summary.anxiety.history.isEmpty())
+  }
+
+  @Test
+  fun `wellbeing weekday comparison averages daily averages rather than raw entry counts in Monday-to-Sunday order`() {
+    val tz = TimeZone.getTimeZone("UTC")
+    // 2026-11-25 is Wednesday
+    val now = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-11-25", tz)!! + 12 * 3_600_000L
+    val monNov23 = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-11-23", tz)!!
+    val monNov16 = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-11-16", tz)!!
+    val tueNov24 = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-11-24", tz)!!
+
+    // 5 high-energy entries on Monday Nov 23 (daily avg = 5.0) + 1 low-energy entry on Monday Nov 16 (daily avg = 1.0).
+    // Equal day weighting => Monday weekday avg must be (5.0 + 1.0) / 2 = 3.0, NOT (25 + 1) / 6 = 4.33.
+    val entries = buildList {
+      repeat(5) { idx ->
+        add(
+          MoodEntry(
+            id = "m23-$idx",
+            mood = 5,
+            timestamp = monNov23 + (idx + 8) * 3_600_000L,
+            energyLevel = 5,
+            stressLevel = 1,
+          ),
+        )
+      }
+      add(MoodEntry(id = "m16", mood = 2, timestamp = monNov16 + 10 * 3_600_000L, energyLevel = 1, stressLevel = 5))
+      add(MoodEntry(id = "t24", mood = 4, timestamp = tueNov24 + 10 * 3_600_000L, energyLevel = 4, anxietyLevel = 2))
+    }
+
+    val monthSummary = MoodAnalytics.computeWellbeingAnalytics(entries, InsightTimeRange.MONTH, now, tz)
+    assertEquals(7, monthSummary.weekdayAverages.size)
+    assertEquals(
+      listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"),
+      monthSummary.weekdayAverages.map { it.weekdayLabel },
+    )
+
+    val monday = monthSummary.weekdayAverages[0]
+    assertEquals(2, monday.energyDayCount)
+    assertEquals(3.0f, monday.energyAverage!!, 0.001f)
+    assertEquals(2, monday.stressDayCount)
+    assertEquals(3.0f, monday.stressAverage!!, 0.001f)
+    assertNull(monday.anxietyAverage)
+
+    val tuesday = monthSummary.weekdayAverages[1]
+    assertEquals(1, tuesday.energyDayCount)
+    assertEquals(4.0f, tuesday.energyAverage!!, 0.001f)
+    assertNull(tuesday.stressAverage)
+    assertEquals(2.0f, tuesday.anxietyAverage!!, 0.001f)
+
+    // Sunday has no entries -> all null
+    val sunday = monthSummary.weekdayAverages[6]
+    assertFalse(sunday.hasAnyData)
+    assertNull(sunday.energyAverage)
+    assertNull(sunday.stressAverage)
+    assertNull(sunday.anxietyAverage)
+  }
+
+  @Test
+  fun `wellbeing analytics respects Day Week Month All filters, empty periods, and timezone DST boundaries`() {
+    val tz = TimeZone.getTimeZone("America/Los_Angeles")
+    // 2026-11-25 12:00 PST
+    val now = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-11-25", tz)!! + 12 * 3_600_000L
+    // Entry at 2026-11-25 23:30 PST (in UTC this is 2026-11-26 07:30 UTC - tests local calendar day)
+    val lateTodayPst = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-11-25", tz)!! + 23 * 3_600_000L + 30 * 60_000L
+    // Entry 3 days ago (Week + Month + All)
+    val threeDaysAgo = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-11-22", tz)!! + 10 * 3_600_000L
+    // Entry on 2026-11-01 (DST fall-back 25-hour day in America/Los_Angeles, 24 days ago -> Month + All)
+    val dstDay = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-11-01", tz)!! + 15 * 3_600_000L
+    // Entry 45 days ago (All only)
+    val oldDay = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-10-11", tz)!! + 10 * 3_600_000L
+
+    val entries = listOf(
+      MoodEntry(id = "e1", mood = 4, timestamp = lateTodayPst, energyLevel = 4, stressLevel = 2, anxietyLevel = 1),
+      MoodEntry(id = "e2", mood = 3, timestamp = threeDaysAgo, energyLevel = 2, stressLevel = 4, anxietyLevel = 3),
+      MoodEntry(id = "e3", mood = 5, timestamp = dstDay, energyLevel = 5, stressLevel = 1, anxietyLevel = 2),
+      MoodEntry(id = "e4", mood = 2, timestamp = oldDay, energyLevel = 1, stressLevel = 5, anxietyLevel = 5),
+    )
+
+    val day = MoodAnalytics.computeWellbeingAnalytics(entries, InsightTimeRange.DAY, now, tz)
+    assertEquals(1, day.energy.entryCount)
+    assertEquals(4.0f, day.energy.average!!, 0.001f)
+    assertEquals(1, day.energy.history.size)
+
+    val week = MoodAnalytics.computeWellbeingAnalytics(entries, InsightTimeRange.WEEK, now, tz)
+    assertEquals(2, week.energy.entryCount)
+    assertEquals(3.0f, week.energy.average!!, 0.001f)
+    assertEquals(7, week.energy.history.size)
+
+    val month = MoodAnalytics.computeWellbeingAnalytics(entries, InsightTimeRange.MONTH, now, tz)
+    assertEquals(3, month.energy.entryCount)
+    assertEquals(3.6666f, month.energy.average!!, 0.01f)
+    assertEquals(30, month.energy.history.size)
+    // Verify DST day 2026-11-01 aligns cleanly on its Sunday slot in MONTH history
+    assertEquals(5.0f, month.energy.history[5].averageValue!!, 0.001f)
+
+    val all = MoodAnalytics.computeWellbeingAnalytics(entries, InsightTimeRange.ALL, now, tz)
+    assertEquals(4, all.energy.entryCount)
+    assertEquals(3.0f, all.energy.average!!, 0.001f)
+    assertEquals(46, all.energy.history.size) // Oct 11 .. Nov 25 inclusive = 46 days
+
+    // Empty entries / entries without wellbeing metrics
+    val emptySummary = MoodAnalytics.computeWellbeingAnalytics(
+      listOf(MoodEntry(id = "plain", mood = 4, timestamp = now)),
+      InsightTimeRange.ALL,
+      now,
+      tz,
+    )
+    assertFalse(emptySummary.hasAnyWellbeingData)
+    assertNull(emptySummary.energy.average)
+    assertNull(emptySummary.stress.average)
+    assertNull(emptySummary.anxiety.average)
+    assertTrue(emptySummary.energy.history.isEmpty())
+    assertEquals(7, emptySummary.weekdayAverages.size)
+    assertTrue(emptySummary.weekdayAverages.all { !it.hasAnyData })
+  }
 }
