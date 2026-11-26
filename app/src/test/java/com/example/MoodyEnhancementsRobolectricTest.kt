@@ -35,11 +35,17 @@ import com.example.model.MoodEntry
 import com.example.model.PhysicalActivityLevel
 import com.example.ui.components.EntryDetailSheet
 import com.example.ui.components.MoodFaceSelectorRow
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import com.example.ui.screens.InsightsCategory
 import com.example.ui.screens.InsightsHabitsScreen
 import com.example.ui.screens.InsightsMoodScreen
 import com.example.ui.screens.InsightsScreen
 import com.example.ui.screens.InsightsSleepScreen
+import com.example.ui.screens.InsightsTagsScreen
 import com.example.ui.screens.InsightsWellbeingScreen
 import com.example.ui.theme.AppearanceMode
 import com.example.ui.theme.MoodyPalette
@@ -745,6 +751,7 @@ class MoodyEnhancementsRobolectricTest {
       "category_wellbeing" to InsightsCategory.WELLBEING,
       "category_sleep" to InsightsCategory.SLEEP,
       "category_habits" to InsightsCategory.HABITS,
+      "category_tags" to InsightsCategory.TAGS,
     ).forEach { (tag, expected) ->
       composeRule.onNodeWithTag("insights_overview_list").performScrollToNode(hasTestTag(tag))
       composeRule.onNodeWithTag(tag).performClick()
@@ -841,5 +848,156 @@ class MoodyEnhancementsRobolectricTest {
     composeRule.onNodeWithText("Logging Frequency").assertIsDisplayed()
     composeRule.onNodeWithText("3 entries").assertIsDisplayed()
     composeRule.onNodeWithText("1.5 logs").assertIsDisplayed()
+  }
+
+  @Test
+  fun `insights tags screen renders empty state when no tags exist in period`() {
+    val now = 1_764_140_000_000L
+    val entries = listOf(MoodEntry(id = "plain", mood = 4, timestamp = now, tags = emptyList()))
+    val state = MoodyUiState(
+      allEntries = entries,
+      insightRange = InsightTimeRange.WEEK,
+      tagsAnalytics = MoodAnalytics.computeTagsAnalytics(entries, InsightTimeRange.WEEK, now),
+    )
+
+    composeRule.setContent {
+      MoodyTheme(appearanceMode = AppearanceMode.DARK, palette = MoodyPalette.TEAL_OBSIDIAN) {
+        InsightsTagsScreen(
+          uiState = state,
+          onBack = {},
+          onSelectRange = {},
+          onSelectTag = {},
+        )
+      }
+    }
+    composeRule.waitForIdle()
+
+    composeRule.onNodeWithText("Tags & Themes").assertIsDisplayed()
+    composeRule.onNodeWithTag("tags_empty_state").assertIsDisplayed()
+    composeRule.onNodeWithText("No tags recorded for this period.").assertIsDisplayed()
+  }
+
+  @Test
+  fun `insights tags screen renders sized word cloud, tappable tag detail sheet, expandable ranked list, trends, and mood distribution`() {
+    val now = 1_764_140_000_000L
+    val entries = listOf(
+      MoodEntry(id = "e1", mood = 2, timestamp = now, tags = listOf("Work", "tired", "coffee", "focus", "walk", "reading")),
+      MoodEntry(id = "e2", mood = 3, timestamp = now - 3_600_000L, tags = listOf("work", "tired")),
+      MoodEntry(id = "e3", mood = 4, timestamp = now - 86_400_000L, tags = listOf("work", "calm")),
+      MoodEntry(id = "e4", mood = 5, timestamp = now - 2 * 86_400_000L, tags = listOf("work")),
+      MoodEntry(id = "e5", mood = 1, timestamp = now - 9 * 86_400_000L, tags = listOf("work")),
+    )
+    val tagsSummary = MoodAnalytics.computeTagsAnalytics(entries, InsightTimeRange.WEEK, now)
+    val state = MoodyUiState(
+      allEntries = entries,
+      insightRange = InsightTimeRange.WEEK,
+      tagsAnalytics = tagsSummary,
+      selectedInsightTagKey = "work",
+    )
+    val tappedTags = mutableListOf<String>()
+
+    composeRule.setContent {
+      MoodyTheme(appearanceMode = AppearanceMode.LIGHT, palette = MoodyPalette.SAGE_DAYLIGHT) {
+        Box(modifier = Modifier.width(320.dp).height(600.dp)) {
+          InsightsTagsScreen(
+            uiState = state,
+            onBack = {},
+            onSelectRange = {},
+            onSelectTag = { tappedTags.add(it) },
+          )
+        }
+      }
+    }
+    composeRule.waitForIdle()
+
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("tags_word_cloud_card"))
+    val workHeight = composeRule.onNodeWithTag("word_cloud_tag_work").fetchSemanticsNode().size.height
+    val readingHeight = composeRule.onNodeWithTag("word_cloud_tag_reading").fetchSemanticsNode().size.height
+    assertTrue("More frequent tag pill should be larger than infrequent tag pill", workHeight > readingHeight)
+
+    composeRule.onNodeWithTag("word_cloud_tag_work").performClick()
+    composeRule.waitForIdle()
+    assertEquals("work", tappedTags.last())
+    composeRule.onNodeWithTag("tag_detail_sheet").assertIsDisplayed()
+    composeRule.onNodeWithTag("tag_detail_close_button").performClick()
+    composeRule.waitForIdle()
+
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("tags_ranked_list_card"))
+    composeRule.onNodeWithTag("ranked_tag_work").assertIsDisplayed()
+    composeRule.onNodeWithTag("ranked_tag_reading").assertDoesNotExist()
+    composeRule.onNodeWithTag("toggle_all_tags_button").performScrollTo().performClick()
+    composeRule.waitForIdle()
+    composeRule.onNodeWithTag("ranked_tag_reading").assertIsDisplayed()
+
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("tags_trends_card"))
+    composeRule.onNodeWithTag("trend_tag_work").assertIsDisplayed()
+
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("tags_mood_distribution_card"))
+    composeRule.onNodeWithText("Mood Distribution by Tag").assertIsDisplayed()
+    (1..5).forEach { score ->
+      composeRule.onNodeWithTag("mood_dist_row_$score").assertIsDisplayed()
+    }
+  }
+
+  @Test
+  fun `tags analytics updates reactively when entries are edited or deleted in repository`() = runTest {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val db = Room.inMemoryDatabaseBuilder(context, MoodyDatabase::class.java)
+      .allowMainThreadQueries()
+      .build()
+    try {
+      val repository = MoodRepository(
+        dao = db.moodEntryDao(),
+        dailyContextDao = db.dailyContextDao(),
+        preferences = MoodyPreferences(context),
+      )
+      val now = System.currentTimeMillis()
+      val entry = MoodEntry(id = "react-1", mood = 4, timestamp = now, tags = listOf("calm", "walk"))
+      repository.upsertEntry(entry)
+
+      val initialTags = MoodAnalytics.computeTagsAnalytics(repository.allEntries.first(), InsightTimeRange.WEEK, now)
+      assertEquals(2, initialTags.distinctTagCount)
+
+      repository.saveEditedEntry(entry.copy(tags = listOf("energized")), updateDailySleep = false)
+      val editedTags = MoodAnalytics.computeTagsAnalytics(repository.allEntries.first(), InsightTimeRange.WEEK, now)
+      assertEquals(1, editedTags.distinctTagCount)
+      assertEquals("energized", editedTags.topTags.single().normalizedTag)
+
+      repository.deleteEntry(entry.id)
+      val deletedTags = MoodAnalytics.computeTagsAnalytics(repository.allEntries.first(), InsightTimeRange.WEEK, now)
+      assertFalse(deletedTags.hasAnyTags)
+    } finally {
+      db.close()
+    }
+  }
+
+  @Test
+  fun `insights tags screen shows insufficient data notice for sparse tags and renders across palettes`() {
+    val now = 1_764_140_000_000L
+    val entries = listOf(
+      MoodEntry(id = "s1", mood = 4, timestamp = now, tags = listOf("travel")),
+      MoodEntry(id = "s2", mood = 5, timestamp = now - 3_600_000L, tags = listOf("travel")),
+    )
+    val state = MoodyUiState(
+      allEntries = entries,
+      insightRange = InsightTimeRange.WEEK,
+      tagsAnalytics = MoodAnalytics.computeTagsAnalytics(entries, InsightTimeRange.WEEK, now),
+      selectedInsightTagKey = "travel",
+    )
+
+    composeRule.setContent {
+      MoodyTheme(appearanceMode = AppearanceMode.DARK, palette = MoodyPalette.VIOLET_MIDNIGHT) {
+        InsightsTagsScreen(
+          uiState = state,
+          onBack = {},
+          onSelectRange = {},
+          onSelectTag = {},
+        )
+      }
+    }
+    composeRule.waitForIdle()
+
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("tags_mood_distribution_card"))
+    composeRule.onNodeWithTag("tag_mood_insufficient_data").performScrollTo().assertIsDisplayed()
   }
 }

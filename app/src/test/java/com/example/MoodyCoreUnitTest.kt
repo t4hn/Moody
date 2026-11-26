@@ -766,4 +766,163 @@ class MoodyCoreUnitTest {
         .contains("morning"),
     )
   }
+
+  @Test
+  fun `tag analytics counts frequency, normalizes case, deduplicates per entry, and computes entry share percentages`() {
+    val tz = TimeZone.getTimeZone("UTC")
+    val now = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-11-26", tz)!! + 12 * 3_600_000L
+
+    val entries = listOf(
+      // Duplicate case/prefix variants within one entry must count only once toward #anxious
+      MoodEntry(id = "t1", mood = 2, timestamp = now, tags = listOf("Anxious", "#anxious", "ANXIOUS", "work", " ")),
+      // Multi-tag entry contributes once to both #anxious and #work
+      MoodEntry(id = "t2", mood = 4, timestamp = now - 3_600_000L, tags = listOf("anxious", "Work")),
+      // Different tag (#walk vs #work must not merge)
+      MoodEntry(id = "t3", mood = 5, timestamp = now - 86_400_000L, tags = listOf("walk")),
+      // Entry with no tags still counts in eligibleEntryCount denominator
+      MoodEntry(id = "t4", mood = 3, timestamp = now - 2 * 86_400_000L, tags = emptyList()),
+    )
+
+    val summary = MoodAnalytics.computeTagsAnalytics(entries, InsightTimeRange.WEEK, now, tz)
+    assertTrue(summary.hasAnyTags)
+    assertEquals(4, summary.eligibleEntryCount)
+    assertEquals(3, summary.taggedEntryCount)
+    assertEquals(3, summary.distinctTagCount)
+
+    val anxious = summary.topTags.first { it.normalizedTag == "anxious" }
+    assertEquals(2, anxious.entryCount)
+    assertEquals(50.0f, anxious.percentageOfEntries, 0.01f) // 2 / 4 eligible entries = 50%
+
+    val work = summary.topTags.first { it.normalizedTag == "work" }
+    assertEquals(2, work.entryCount)
+    assertEquals(50.0f, work.percentageOfEntries, 0.01f)
+
+    val walk = summary.topTags.first { it.normalizedTag == "walk" }
+    assertEquals(1, walk.entryCount)
+    assertEquals(25.0f, walk.percentageOfEntries, 0.01f)
+  }
+
+  @Test
+  fun `tag mood distribution tracks scores 1 to 5 accurately and marks insufficient data`() {
+    val tz = TimeZone.getTimeZone("UTC")
+    val now = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-11-26", tz)!! + 12 * 3_600_000L
+
+    val entries = listOf(
+      MoodEntry(id = "m1", mood = 1, timestamp = now, tags = listOf("work")),
+      MoodEntry(id = "m2", mood = 2, timestamp = now - 1_000L, tags = listOf("work")),
+      MoodEntry(id = "m3", mood = 4, timestamp = now - 2_000L, tags = listOf("work")),
+      MoodEntry(id = "m4", mood = 4, timestamp = now - 3_000L, tags = listOf("work")),
+      MoodEntry(id = "m5", mood = 5, timestamp = now - 4_000L, tags = listOf("family")),
+      MoodEntry(id = "m6", mood = 3, timestamp = now - 5_000L, tags = listOf("family")),
+    )
+
+    val summary = MoodAnalytics.computeTagsAnalytics(entries, InsightTimeRange.WEEK, now, tz)
+
+    val work = summary.topTags.first { it.normalizedTag == "work" }
+    assertEquals(4, work.entryCount)
+    assertTrue(work.hasSufficientMoodData)
+    assertEquals(2.75f, work.averageMood!!, 0.001f)
+    assertEquals(1, work.moodDistribution[0].count) // score 1
+    assertEquals(25f, work.moodDistribution[0].percentage, 0.01f)
+    assertEquals(1, work.moodDistribution[1].count) // score 2
+    assertEquals(0, work.moodDistribution[2].count) // score 3
+    assertEquals(2, work.moodDistribution[3].count) // score 4
+    assertEquals(50f, work.moodDistribution[3].percentage, 0.01f)
+    assertEquals(0, work.moodDistribution[4].count) // score 5
+
+    val family = summary.topTags.first { it.normalizedTag == "family" }
+    assertEquals(2, family.entryCount)
+    assertFalse(family.hasSufficientMoodData) // < 3 entries
+    assertEquals(0, family.moodDistribution[0].count)
+    assertEquals(1, family.moodDistribution[2].count) // score 3
+    assertEquals(1, family.moodDistribution[4].count) // score 5
+  }
+
+  @Test
+  fun `tag analytics handles Day Week Month All filtering, period trends, zero previous usage, and empty states`() {
+    val tz = TimeZone.getTimeZone("UTC")
+    val now = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-11-26", tz)!! + 15 * 3_600_000L
+
+    val entries = listOf(
+      // Today (Day, Week, Month, All): #focus (2 entries today) + #newtag (2 entries today, 0 prior)
+      MoodEntry(id = "c1", mood = 4, timestamp = now, tags = listOf("focus", "newtag")),
+      MoodEntry(id = "c2", mood = 5, timestamp = now - 3_600_000L, tags = listOf("focus", "newtag")),
+      // 3 days ago (Week, Month, All): #focus (total 3 in Week)
+      MoodEntry(id = "c3", mood = 3, timestamp = DateTimeUtils.daysAgoStartMillis(3, now, tz) + 10 * 3_600_000L, tags = listOf("focus")),
+      // 9 days ago -> Preceding 7-day window (daysAgo 13..7): #focus (1), #dropped (2)
+      MoodEntry(id = "p1", mood = 4, timestamp = DateTimeUtils.daysAgoStartMillis(9, now, tz) + 10 * 3_600_000L, tags = listOf("focus", "dropped")),
+      MoodEntry(id = "p2", mood = 2, timestamp = DateTimeUtils.daysAgoStartMillis(10, now, tz) + 10 * 3_600_000L, tags = listOf("dropped")),
+      // 40 days ago -> Preceding 30-day window (daysAgo 59..30): #legacy (3)
+      MoodEntry(id = "m1", mood = 4, timestamp = DateTimeUtils.daysAgoStartMillis(40, now, tz) + 10 * 3_600_000L, tags = listOf("legacy")),
+      MoodEntry(id = "m2", mood = 4, timestamp = DateTimeUtils.daysAgoStartMillis(41, now, tz) + 10 * 3_600_000L, tags = listOf("legacy")),
+      MoodEntry(id = "m3", mood = 4, timestamp = DateTimeUtils.daysAgoStartMillis(42, now, tz) + 10 * 3_600_000L, tags = listOf("legacy")),
+    )
+
+    val day = MoodAnalytics.computeTagsAnalytics(entries, InsightTimeRange.DAY, now, tz)
+    assertEquals(2, day.eligibleEntryCount)
+    assertEquals(2, day.distinctTagCount)
+
+    val week = MoodAnalytics.computeTagsAnalytics(entries, InsightTimeRange.WEEK, now, tz)
+    assertTrue(week.supportsPeriodComparison)
+    assertEquals(3, week.eligibleEntryCount)
+
+    val focusWeekTrend = week.trendItems.first { it.normalizedTag == "focus" }
+    assertEquals(3, focusWeekTrend.currentCount)
+    assertEquals(1, focusWeekTrend.previousCount)
+    assertEquals(2, focusWeekTrend.deltaCount)
+    assertEquals(200f, focusWeekTrend.percentChange!!, 0.01f)
+    assertEquals(com.example.viewmodel.TagTrendDirection.UP, focusWeekTrend.direction)
+
+    val newTagTrend = week.trendItems.first { it.normalizedTag == "newtag" }
+    assertEquals(2, newTagTrend.currentCount)
+    assertEquals(0, newTagTrend.previousCount)
+    assertEquals(2, newTagTrend.deltaCount)
+    assertNull(newTagTrend.percentChange) // Zero previous usage must NOT compute misleading percentage
+    assertEquals(com.example.viewmodel.TagTrendDirection.UP, newTagTrend.direction)
+
+    val droppedTrend = week.trendItems.first { it.normalizedTag == "dropped" }
+    assertEquals(0, droppedTrend.currentCount)
+    assertEquals(2, droppedTrend.previousCount)
+    assertEquals(-2, droppedTrend.deltaCount)
+    assertEquals(-100f, droppedTrend.percentChange!!, 0.01f)
+    assertEquals(com.example.viewmodel.TagTrendDirection.DOWN, droppedTrend.direction)
+
+    val month = MoodAnalytics.computeTagsAnalytics(entries, InsightTimeRange.MONTH, now, tz)
+    assertEquals(5, month.eligibleEntryCount)
+    val legacyMonthTrend = month.trendItems.first { it.normalizedTag == "legacy" }
+    assertEquals(0, legacyMonthTrend.currentCount)
+    assertEquals(3, legacyMonthTrend.previousCount)
+    assertEquals(com.example.viewmodel.TagTrendDirection.DOWN, legacyMonthTrend.direction)
+
+    val all = MoodAnalytics.computeTagsAnalytics(entries, InsightTimeRange.ALL, now, tz)
+    assertFalse(all.supportsPeriodComparison)
+    assertTrue(all.trendItems.isEmpty())
+    assertNull(all.topTags.first().previousCount)
+    assertNull(all.topTags.first().percentChange)
+
+    // Empty range & entries with no tags
+    val emptySummary = MoodAnalytics.computeTagsAnalytics(emptyList(), InsightTimeRange.WEEK, now, tz)
+    assertFalse(emptySummary.hasAnyTags)
+    assertEquals(0, emptySummary.eligibleEntryCount)
+    assertTrue(emptySummary.topTags.isEmpty())
+
+    val untaggedOnly = MoodAnalytics.computeTagsAnalytics(
+      listOf(MoodEntry(id = "u1", mood = 4, timestamp = now, tags = emptyList())),
+      InsightTimeRange.WEEK,
+      now,
+      tz,
+    )
+    assertFalse(untaggedOnly.hasAnyTags)
+    assertEquals(1, untaggedOnly.eligibleEntryCount)
+    assertEquals(0, untaggedOnly.taggedEntryCount)
+
+    // Editing or deleting entries updates tag analytics accurately when recomputed
+    val afterEditAndDelete = entries
+      .filterNot { it.id == "c2" }
+      .map { if (it.id == "c1") it.copy(tags = listOf("calm")) else it }
+    val updatedWeek = MoodAnalytics.computeTagsAnalytics(afterEditAndDelete, InsightTimeRange.WEEK, now, tz)
+    assertNull(updatedWeek.topTags.firstOrNull { it.normalizedTag == "newtag" })
+    assertEquals(1, updatedWeek.topTags.first { it.normalizedTag == "calm" }.entryCount)
+    assertEquals(1, updatedWeek.topTags.first { it.normalizedTag == "focus" }.entryCount)
+  }
 }

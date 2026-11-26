@@ -42,6 +42,7 @@ class MoodyViewModel(application: Application) : AndroidViewModel(application) {
     val insightRange: InsightTimeRange = InsightTimeRange.WEEK,
     val selectedHeatmapDayStart: Long? = null,
     val timeOfDayMode: TimeOfDayMode = TimeOfDayMode.PART_OF_DAY,
+    val selectedInsightTagKey: String? = null,
     val searchQuery: String = "",
     val selectedFilterTags: Set<String> = emptySet(),
     val dateFilter: HistoryDateFilter = HistoryDateFilter.ALL,
@@ -90,10 +91,18 @@ class MoodyViewModel(application: Application) : AndroidViewModel(application) {
       range = ctrl.insightRange,
       nowMillis = now,
     )
+    val tagsAnalytics = MoodAnalytics.computeTagsAnalytics(
+      entries = entries,
+      range = ctrl.insightRange,
+      nowMillis = now,
+    )
+    val resolvedSelectedTagKey = ctrl.selectedInsightTagKey?.takeIf { key ->
+      tagsAnalytics.topTags.any { it.normalizedTag == key }
+    } ?: tagsAnalytics.topTags.firstOrNull()?.normalizedTag
     val suggestedTags = MoodAnalytics.computeSuggestedTags(entries)
     val allUsedTags = entries
       .flatMap { it.tags }
-      .map { it.trim().lowercase() }
+      .map { it.trim().trimStart('#').trim().lowercase() }
       .filter { it.isNotEmpty() }
       .groupingBy { it }
       .eachCount()
@@ -133,6 +142,8 @@ class MoodyViewModel(application: Application) : AndroidViewModel(application) {
       sleepAnalytics = sleepAnalytics,
       wellbeingAnalytics = wellbeingAnalytics,
       habitsAnalytics = habitsAnalytics,
+      tagsAnalytics = tagsAnalytics,
+      selectedInsightTagKey = resolvedSelectedTagKey,
       searchQuery = ctrl.searchQuery,
       selectedFilterTags = ctrl.selectedFilterTags,
       dateFilter = ctrl.dateFilter,
@@ -273,6 +284,13 @@ class MoodyViewModel(application: Application) : AndroidViewModel(application) {
 
   fun setTimeOfDayMode(mode: TimeOfDayMode) {
     controls.value = controls.value.copy(timeOfDayMode = mode)
+  }
+
+  fun selectInsightTag(tagKey: String) {
+    val clean = MoodAnalytics.normalizeTagKey(tagKey)
+    if (clean.isNotEmpty()) {
+      controls.value = controls.value.copy(selectedInsightTagKey = clean)
+    }
   }
 
   fun setSearchQuery(query: String) {

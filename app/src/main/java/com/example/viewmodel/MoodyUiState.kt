@@ -43,6 +43,8 @@ data class MoodyUiState(
   val sleepAnalytics: SleepAnalyticsSummary = SleepAnalyticsSummary(),
   val wellbeingAnalytics: WellbeingAnalyticsSummary = WellbeingAnalyticsSummary(),
   val habitsAnalytics: HabitsAnalyticsSummary = HabitsAnalyticsSummary(),
+  val tagsAnalytics: TagsAnalyticsSummary = TagsAnalyticsSummary(),
+  val selectedInsightTagKey: String? = null,
 
   // History
   val searchQuery: String = "",

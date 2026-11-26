@@ -65,6 +65,7 @@ import com.example.ui.screens.InsightsHabitsScreen
 import com.example.ui.screens.InsightsMoodScreen
 import com.example.ui.screens.InsightsScreen
 import com.example.ui.screens.InsightsSleepScreen
+import com.example.ui.screens.InsightsTagsScreen
 import com.example.ui.screens.InsightsWellbeingScreen
 import com.example.ui.screens.TodayScreen
 import com.example.ui.theme.AppearanceMode
@@ -79,6 +80,7 @@ const val ROUTE_INSIGHTS_MOOD = "insights/mood"
 const val ROUTE_INSIGHTS_WELLBEING = "insights/wellbeing"
 const val ROUTE_INSIGHTS_SLEEP = "insights/sleep"
 const val ROUTE_INSIGHTS_HABITS = "insights/habits"
+const val ROUTE_INSIGHTS_TAGS = "insights/tags"
 const val ROUTE_HISTORY = "history"
 const val ROUTE_SETTINGS = "settings"
 
@@ -182,6 +184,7 @@ private fun MoodyAppScaffold(
       InsightsCategory.WELLBEING -> ROUTE_INSIGHTS_WELLBEING
       InsightsCategory.SLEEP -> ROUTE_INSIGHTS_SLEEP
       InsightsCategory.HABITS -> ROUTE_INSIGHTS_HABITS
+      InsightsCategory.TAGS -> ROUTE_INSIGHTS_TAGS
     }
     navController.navigate(targetRoute) {
       launchSingleTop = true
@@ -338,6 +341,14 @@ private fun MoodyAppScaffold(
                   onBack = { navController.popBackStack() },
                   onSelectRange = viewModel::setInsightRange,
                   onSelectTimeOfDayMode = viewModel::setTimeOfDayMode,
+                )
+              }
+              composable(ROUTE_INSIGHTS_TAGS) {
+                InsightsTagsScreen(
+                  uiState = uiState,
+                  onBack = { navController.popBackStack() },
+                  onSelectRange = viewModel::setInsightRange,
+                  onSelectTag = viewModel::selectInsightTag,
                 )
               }
             }

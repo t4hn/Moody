@@ -911,4 +911,19 @@ object MoodAnalytics {
       else -> null
     }
   }
+
+  fun normalizeTagKey(raw: String): String = TagAnalyticsCalculator.normalizeTagKey(raw)
+
+  fun computeTagsAnalytics(
+    entries: List<MoodEntry>,
+    range: InsightTimeRange,
+    nowMillis: Long = System.currentTimeMillis(),
+    timeZone: TimeZone = TimeZone.getDefault(),
+  ): TagsAnalyticsSummary =
+    TagAnalyticsCalculator.compute(
+      allEntries = entries,
+      range = range,
+      nowMillis = nowMillis,
+      timeZone = timeZone,
+    )
 }

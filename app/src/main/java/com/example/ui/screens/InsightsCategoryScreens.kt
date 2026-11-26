@@ -661,7 +661,7 @@ fun InsightsHabitsScreen(
 }
 
 @Composable
-private fun InsightsCategoryScaffold(
+internal fun InsightsCategoryScaffold(
   title: String,
   glowAccent: Color,
   selectedRange: InsightTimeRange,
@@ -744,7 +744,7 @@ private fun WellbeingCategoryTile(
 }
 
 @Composable
-private fun CategoryEmptyCard(
+internal fun CategoryEmptyCard(
   icon: ImageVector,
   title: String,
   subtitle: String,

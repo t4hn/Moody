@@ -27,6 +27,7 @@ import androidx.compose.material.icons.outlined.AutoGraph
 import androidx.compose.material.icons.outlined.Bedtime
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -56,6 +57,7 @@ enum class InsightsCategory {
   WELLBEING,
   SLEEP,
   HABITS,
+  TAGS,
 }
 
 @Composable
@@ -255,6 +257,31 @@ fun InsightsScreen(
           accentColor = colors.accentPrimary,
           onClick = { onSelectCategory(InsightsCategory.HABITS) },
           modifier = Modifier.testTag("category_habits"),
+        )
+      }
+
+      item {
+        val tagsSummary = uiState.tagsAnalytics
+        val tagsSubtitle = if (tagsSummary.hasAnyTags) {
+          val topDisplay = tagsSummary.topTags.firstOrNull()?.displayTag
+          val countLabel = "${tagsSummary.distinctTagCount} ${if (tagsSummary.distinctTagCount == 1) "tag" else "tags"}"
+          if (topDisplay != null) {
+            "$countLabel · Top: #$topDisplay"
+          } else {
+            "Word cloud, top tags, trends & mood breakdown"
+          }
+        } else {
+          "No tags recorded for this period."
+        }
+        val topTagColor = tagsSummary.topTags.firstOrNull()?.averageMood?.let { moodColorInterpolated(it) }
+
+        InsightsCategoryCard(
+          title = "Tags & Themes",
+          subtitle = tagsSubtitle,
+          icon = Icons.Outlined.Tag,
+          accentColor = topTagColor ?: colors.accentPrimary,
+          onClick = { onSelectCategory(InsightsCategory.TAGS) },
+          modifier = Modifier.testTag("category_tags"),
         )
       }
     }
