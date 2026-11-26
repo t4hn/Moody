@@ -66,13 +66,20 @@ class MoodyViewModel(application: Application) : AndroidViewModel(application) {
     val todayEnd = DateTimeUtils.endOfDayMillis(now)
     val todayEntries = entries.filter { it.timestamp in todayStart..todayEnd }
 
-    val stats = MoodAnalytics.computeStats(entries, now)
+    val stats = MoodAnalytics.computeStatsForRange(entries, ctrl.insightRange, now)
     val linePoints = MoodAnalytics.computeLineGraphPoints(entries, ctrl.insightRange, now)
+    val moodObservation = MoodAnalytics.computeMoodObservation(linePoints)
     val heatmap = MoodAnalytics.computeCalendarHeatmap(entries, weeks = 12, nowMillis = now)
     val selectedDayCell = ctrl.selectedHeatmapDayStart?.let { selectedStart ->
       heatmap.firstOrNull { it.dayStartMillis == selectedStart }
     } ?: heatmap.lastOrNull { !it.isFuture && it.entryCount > 0 }
-    val todBuckets = MoodAnalytics.computeTimeOfDayBuckets(entries, ctrl.timeOfDayMode)
+    val habitsAnalytics = MoodAnalytics.computeHabitsAnalytics(
+      allEntries = entries,
+      range = ctrl.insightRange,
+      timeOfDayMode = ctrl.timeOfDayMode,
+      nowMillis = now,
+    )
+    val todBuckets = habitsAnalytics.timeOfDayBuckets
     val sleepAnalytics = MoodAnalytics.computeSleepAnalytics(
       dailyContexts = dailyContexts.values,
       range = ctrl.insightRange,
@@ -118,12 +125,14 @@ class MoodyViewModel(application: Application) : AndroidViewModel(application) {
       stats = stats,
       insightRange = ctrl.insightRange,
       lineGraphPoints = linePoints,
+      moodObservation = moodObservation,
       heatmapCells = heatmap,
       selectedHeatmapDay = selectedDayCell,
       timeOfDayMode = ctrl.timeOfDayMode,
       timeOfDayBuckets = todBuckets,
       sleepAnalytics = sleepAnalytics,
       wellbeingAnalytics = wellbeingAnalytics,
+      habitsAnalytics = habitsAnalytics,
       searchQuery = ctrl.searchQuery,
       selectedFilterTags = ctrl.selectedFilterTags,
       dateFilter = ctrl.dateFilter,

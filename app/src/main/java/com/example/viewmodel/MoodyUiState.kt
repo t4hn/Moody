@@ -35,12 +35,14 @@ data class MoodyUiState(
   val stats: MoodStats = MoodStats(null, 0, 0, 0),
   val insightRange: InsightTimeRange = InsightTimeRange.WEEK,
   val lineGraphPoints: List<MoodGraphPoint> = emptyList(),
+  val moodObservation: String? = null,
   val heatmapCells: List<HeatmapDayCell> = emptyList(),
   val selectedHeatmapDay: HeatmapDayCell? = null,
   val timeOfDayMode: TimeOfDayMode = TimeOfDayMode.PART_OF_DAY,
   val timeOfDayBuckets: List<TimeOfDayBucket> = emptyList(),
   val sleepAnalytics: SleepAnalyticsSummary = SleepAnalyticsSummary(),
   val wellbeingAnalytics: WellbeingAnalyticsSummary = WellbeingAnalyticsSummary(),
+  val habitsAnalytics: HabitsAnalyticsSummary = HabitsAnalyticsSummary(),
 
   // History
   val searchQuery: String = "",

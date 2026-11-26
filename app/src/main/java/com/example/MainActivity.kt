@@ -48,17 +48,24 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import com.example.ui.components.EntryDetailSheet
 import com.example.ui.components.FloatingMoodToast
 import com.example.ui.screens.DataScreen
 import com.example.ui.screens.HistoryScreen
+import com.example.ui.screens.InsightsCategory
+import com.example.ui.screens.InsightsHabitsScreen
+import com.example.ui.screens.InsightsMoodScreen
 import com.example.ui.screens.InsightsScreen
+import com.example.ui.screens.InsightsSleepScreen
+import com.example.ui.screens.InsightsWellbeingScreen
 import com.example.ui.screens.TodayScreen
 import com.example.ui.theme.AppearanceMode
 import com.example.ui.theme.MoodyTheme
@@ -67,6 +74,11 @@ import com.example.viewmodel.MoodyViewModel
 
 const val ROUTE_TODAY = "today"
 const val ROUTE_INSIGHTS = "insights"
+const val ROUTE_INSIGHTS_OVERVIEW = "insights/overview"
+const val ROUTE_INSIGHTS_MOOD = "insights/mood"
+const val ROUTE_INSIGHTS_WELLBEING = "insights/wellbeing"
+const val ROUTE_INSIGHTS_SLEEP = "insights/sleep"
+const val ROUTE_INSIGHTS_HABITS = "insights/habits"
 const val ROUTE_HISTORY = "history"
 const val ROUTE_SETTINGS = "settings"
 
@@ -145,14 +157,34 @@ private fun MoodyAppScaffold(
   val navController = rememberNavController()
   val backStackEntry by navController.currentBackStackEntryAsState()
   val currentDestination = backStackEntry?.destination
+  val insightsOverviewListState = rememberLazyListState()
 
   fun navigateToTab(route: String) {
+    if (route == ROUTE_INSIGHTS &&
+      currentDestination?.route?.startsWith("insights/") == true &&
+      currentDestination.route != ROUTE_INSIGHTS_OVERVIEW
+    ) {
+      navController.popBackStack(ROUTE_INSIGHTS_OVERVIEW, inclusive = false)
+      return
+    }
     navController.navigate(route) {
       popUpTo(navController.graph.findStartDestination().id) {
         saveState = true
       }
       launchSingleTop = true
       restoreState = true
+    }
+  }
+
+  fun navigateToInsightsCategory(category: InsightsCategory) {
+    val targetRoute = when (category) {
+      InsightsCategory.MOOD -> ROUTE_INSIGHTS_MOOD
+      InsightsCategory.WELLBEING -> ROUTE_INSIGHTS_WELLBEING
+      InsightsCategory.SLEEP -> ROUTE_INSIGHTS_SLEEP
+      InsightsCategory.HABITS -> ROUTE_INSIGHTS_HABITS
+    }
+    navController.navigate(targetRoute) {
+      launchSingleTop = true
     }
   }
 
@@ -266,13 +298,48 @@ private fun MoodyAppScaffold(
                 onOpenEntry = viewModel::openEntryEditor,
               )
             }
-            composable(ROUTE_INSIGHTS) {
-              InsightsScreen(
-                uiState = uiState,
-                onSelectRange = viewModel::setInsightRange,
-                onSelectHeatmapDay = viewModel::selectHeatmapDay,
-                onSelectTimeOfDayMode = viewModel::setTimeOfDayMode,
-              )
+            navigation(
+              startDestination = ROUTE_INSIGHTS_OVERVIEW,
+              route = ROUTE_INSIGHTS,
+            ) {
+              composable(ROUTE_INSIGHTS_OVERVIEW) {
+                InsightsScreen(
+                  uiState = uiState,
+                  onSelectRange = viewModel::setInsightRange,
+                  onSelectCategory = ::navigateToInsightsCategory,
+                  listState = insightsOverviewListState,
+                )
+              }
+              composable(ROUTE_INSIGHTS_MOOD) {
+                InsightsMoodScreen(
+                  uiState = uiState,
+                  onBack = { navController.popBackStack() },
+                  onSelectRange = viewModel::setInsightRange,
+                  onSelectHeatmapDay = viewModel::selectHeatmapDay,
+                )
+              }
+              composable(ROUTE_INSIGHTS_WELLBEING) {
+                InsightsWellbeingScreen(
+                  uiState = uiState,
+                  onBack = { navController.popBackStack() },
+                  onSelectRange = viewModel::setInsightRange,
+                )
+              }
+              composable(ROUTE_INSIGHTS_SLEEP) {
+                InsightsSleepScreen(
+                  uiState = uiState,
+                  onBack = { navController.popBackStack() },
+                  onSelectRange = viewModel::setInsightRange,
+                )
+              }
+              composable(ROUTE_INSIGHTS_HABITS) {
+                InsightsHabitsScreen(
+                  uiState = uiState,
+                  onBack = { navController.popBackStack() },
+                  onSelectRange = viewModel::setInsightRange,
+                  onSelectTimeOfDayMode = viewModel::setTimeOfDayMode,
+                )
+              }
             }
             composable(ROUTE_HISTORY) {
               HistoryScreen(

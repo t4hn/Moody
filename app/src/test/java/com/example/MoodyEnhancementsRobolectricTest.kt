@@ -35,13 +35,19 @@ import com.example.model.MoodEntry
 import com.example.model.PhysicalActivityLevel
 import com.example.ui.components.EntryDetailSheet
 import com.example.ui.components.MoodFaceSelectorRow
+import com.example.ui.screens.InsightsCategory
+import com.example.ui.screens.InsightsHabitsScreen
+import com.example.ui.screens.InsightsMoodScreen
 import com.example.ui.screens.InsightsScreen
+import com.example.ui.screens.InsightsSleepScreen
+import com.example.ui.screens.InsightsWellbeingScreen
 import com.example.ui.theme.AppearanceMode
 import com.example.ui.theme.MoodyPalette
 import com.example.ui.theme.MoodyTheme
 import com.example.viewmodel.InsightTimeRange
 import com.example.viewmodel.MoodAnalytics
 import com.example.viewmodel.MoodyUiState
+import com.example.viewmodel.TimeOfDayMode
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -348,7 +354,7 @@ class MoodyEnhancementsRobolectricTest {
   }
 
   @Test
-  fun `insights screen renders sleep and recovery section and empty state accurately`() {
+  fun `insights sleep screen renders sleep and recovery section and empty state accurately`() {
     val now = System.currentTimeMillis()
     val entries = listOf(MoodEntry(id = "m1", mood = 4, timestamp = now))
     val emptySleepState = MoodyUiState(
@@ -359,21 +365,22 @@ class MoodyEnhancementsRobolectricTest {
 
     composeRule.setContent {
       MoodyTheme(appearanceMode = AppearanceMode.DARK, palette = MoodyPalette.TEAL_OBSIDIAN) {
-        InsightsScreen(
+        InsightsSleepScreen(
           uiState = emptySleepState,
+          onBack = {},
           onSelectRange = {},
-          onSelectHeatmapDay = {},
-          onSelectTimeOfDayMode = {},
         )
       }
     }
     composeRule.waitForIdle()
-    composeRule.onNodeWithTag("sleep_recovery_header").performScrollTo().assertIsDisplayed()
-    composeRule.onNodeWithText("No sleep data recorded for this period.").performScrollTo().assertIsDisplayed()
+    composeRule.onNodeWithText("Sleep & Recovery").assertIsDisplayed()
+    composeRule.onNodeWithTag("insights_back_button").assertIsDisplayed()
+    composeRule.onNodeWithTag("sleep_empty_state").assertIsDisplayed()
+    composeRule.onNodeWithText("No sleep data recorded for this period.").assertIsDisplayed()
   }
 
   @Test
-  fun `insights screen displays all four sleep and recovery components when sleep data exists`() {
+  fun `insights sleep screen displays all four sleep and recovery components including duration history`() {
     val now = 1_763_885_644_000L
     val entries = listOf(MoodEntry(id = "m1", mood = 4, timestamp = now))
     val dayKeyToday = com.example.util.DateTimeUtils.formatFileDate(now)
@@ -390,20 +397,24 @@ class MoodyEnhancementsRobolectricTest {
 
     composeRule.setContent {
       MoodyTheme(appearanceMode = AppearanceMode.DARK, palette = MoodyPalette.TEAL_OBSIDIAN) {
-        InsightsScreen(
+        InsightsSleepScreen(
           uiState = populatedState,
+          onBack = {},
           onSelectRange = {},
-          onSelectHeatmapDay = {},
-          onSelectTimeOfDayMode = {},
         )
       }
     }
     composeRule.waitForIdle()
-    composeRule.onNodeWithTag("sleep_stat_avg_quality").performScrollTo().assertIsDisplayed()
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("sleep_stat_avg_quality"))
+    composeRule.onNodeWithTag("sleep_stat_avg_quality").assertIsDisplayed()
     composeRule.onNodeWithText("3.5 / 5").assertIsDisplayed()
     composeRule.onNodeWithText("7h 15m").assertIsDisplayed()
-    composeRule.onNodeWithTag("sleep_quality_history_card").performScrollTo().assertIsDisplayed()
-    composeRule.onNodeWithTag("sleep_weekday_card").performScrollTo().assertIsDisplayed()
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("sleep_quality_history_card"))
+    composeRule.onNodeWithTag("sleep_quality_history_card").assertIsDisplayed()
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("sleep_duration_history_card"))
+    composeRule.onNodeWithText("Sleep Duration History").assertIsDisplayed()
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("sleep_weekday_card"))
+    composeRule.onNodeWithTag("sleep_weekday_card").assertIsDisplayed()
     composeRule.onNodeWithText("Monday").assertIsDisplayed()
     composeRule.onNodeWithText("Sunday").assertIsDisplayed()
   }
@@ -549,7 +560,7 @@ class MoodyEnhancementsRobolectricTest {
   }
 
   @Test
-  fun `insights screen renders wellbeing empty state when no wellbeing metrics exist in period`() {
+  fun `insights wellbeing screen renders empty state when no wellbeing metrics exist in period`() {
     val now = 1_764_140_000_000L
     val entries = listOf(MoodEntry(id = "plain-1", mood = 4, timestamp = now))
     val emptyWellbeingState = MoodyUiState(
@@ -561,24 +572,22 @@ class MoodyEnhancementsRobolectricTest {
 
     composeRule.setContent {
       MoodyTheme(appearanceMode = AppearanceMode.DARK, palette = MoodyPalette.TEAL_OBSIDIAN) {
-        InsightsScreen(
+        InsightsWellbeingScreen(
           uiState = emptyWellbeingState,
+          onBack = {},
           onSelectRange = {},
-          onSelectHeatmapDay = {},
-          onSelectTimeOfDayMode = {},
         )
       }
     }
     composeRule.waitForIdle()
 
-    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("wellbeing_header"))
-    composeRule.onNodeWithTag("wellbeing_header").assertIsDisplayed()
+    composeRule.onNodeWithText("Energy, Stress & Anxiety").assertIsDisplayed()
     composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("wellbeing_empty_state"))
     composeRule.onNodeWithText("No wellbeing data recorded for this period.").assertIsDisplayed()
   }
 
   @Test
-  fun `insights screen displays populated wellbeing tiles, three charts, and 7-day weekday comparison`() {
+  fun `insights wellbeing screen displays populated tiles, three charts, and 7-day weekday comparison`() {
     val now = 1_764_140_000_000L
     val entries = listOf(
       MoodEntry(
@@ -607,11 +616,10 @@ class MoodyEnhancementsRobolectricTest {
 
     composeRule.setContent {
       MoodyTheme(appearanceMode = AppearanceMode.DARK, palette = MoodyPalette.TEAL_OBSIDIAN) {
-        InsightsScreen(
+        InsightsWellbeingScreen(
           uiState = state,
+          onBack = {},
           onSelectRange = {},
-          onSelectHeatmapDay = {},
-          onSelectTimeOfDayMode = {},
         )
       }
     }
@@ -646,7 +654,7 @@ class MoodyEnhancementsRobolectricTest {
   }
 
   @Test
-  fun `insights screen handles partial wellbeing data without hiding recorded metrics`() {
+  fun `insights wellbeing screen handles partial data without hiding recorded metrics`() {
     val now = 1_764_140_000_000L
     val entries = listOf(
       MoodEntry(
@@ -667,11 +675,10 @@ class MoodyEnhancementsRobolectricTest {
 
     composeRule.setContent {
       MoodyTheme(appearanceMode = AppearanceMode.LIGHT, palette = MoodyPalette.SAGE_DAYLIGHT) {
-        InsightsScreen(
+        InsightsWellbeingScreen(
           uiState = state,
+          onBack = {},
           onSelectRange = {},
-          onSelectHeatmapDay = {},
-          onSelectTimeOfDayMode = {},
         )
       }
     }
@@ -684,5 +691,155 @@ class MoodyEnhancementsRobolectricTest {
 
     composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("wellbeing_history_stress"))
     composeRule.onNodeWithText("No stress data recorded for this period.").assertIsDisplayed()
+  }
+
+  @Test
+  fun `insights overview displays snapshot, standardized ranges, and dispatches category navigation`() {
+    val now = 1_764_140_000_000L
+    val dayKey = com.example.util.DateTimeUtils.formatFileDate(now)
+    val entries = listOf(
+      MoodEntry(id = "ov-1", mood = 4, timestamp = now, energyLevel = 5),
+      MoodEntry(id = "ov-2", mood = 4, timestamp = now - 86_400_000L, energyLevel = 3),
+    )
+    val contexts = listOf(
+      DailyContext(dayKey = dayKey, sleepDurationMinutes = 450, sleepQuality = 4),
+    )
+    val state = MoodyUiState(
+      allEntries = entries,
+      insightRange = InsightTimeRange.MONTH,
+      stats = MoodAnalytics.computeStatsForRange(entries, InsightTimeRange.MONTH, now),
+      sleepAnalytics = MoodAnalytics.computeSleepAnalytics(contexts, InsightTimeRange.MONTH, now),
+      wellbeingAnalytics = MoodAnalytics.computeWellbeingAnalytics(entries, InsightTimeRange.MONTH, now),
+    )
+
+    val selectedCategories = mutableListOf<InsightsCategory>()
+    var selectedRange: InsightTimeRange? = null
+
+    composeRule.setContent {
+      MoodyTheme(appearanceMode = AppearanceMode.DARK, palette = MoodyPalette.TEAL_OBSIDIAN) {
+        InsightsScreen(
+          uiState = state,
+          onSelectRange = { selectedRange = it },
+          onSelectCategory = { selectedCategories.add(it) },
+        )
+      }
+    }
+    composeRule.waitForIdle()
+
+    composeRule.onNodeWithText("Wellbeing Overview").assertIsDisplayed()
+    composeRule.onNodeWithTag("range_week").assertIsDisplayed()
+    composeRule.onNodeWithTag("range_month").assertIsDisplayed()
+    composeRule.onNodeWithTag("range_three_months").assertIsDisplayed()
+    composeRule.onNodeWithTag("range_all").assertIsDisplayed()
+    composeRule.onNodeWithTag("range_day").assertDoesNotExist()
+
+    composeRule.onNodeWithTag("snapshot_avg_mood").assertIsDisplayed()
+    composeRule.onNodeWithTag("snapshot_avg_energy").assertIsDisplayed()
+    composeRule.onNodeWithTag("snapshot_avg_sleep").assertIsDisplayed()
+
+    composeRule.onNodeWithTag("range_three_months").performClick()
+    assertEquals(InsightTimeRange.THREE_MONTHS, selectedRange)
+
+    listOf(
+      "category_mood" to InsightsCategory.MOOD,
+      "category_wellbeing" to InsightsCategory.WELLBEING,
+      "category_sleep" to InsightsCategory.SLEEP,
+      "category_habits" to InsightsCategory.HABITS,
+    ).forEach { (tag, expected) ->
+      composeRule.onNodeWithTag("insights_overview_list").performScrollToNode(hasTestTag(tag))
+      composeRule.onNodeWithTag(tag).performClick()
+      assertEquals(expected, selectedCategories.last())
+    }
+  }
+
+  @Test
+  fun `insights mood screen displays stats, mood over time, mood calendar, and back action`() {
+    val now = 1_764_140_000_000L
+    val entries = listOf(
+      MoodEntry(id = "md-1", mood = 2, timestamp = now - 3 * 86_400_000L),
+      MoodEntry(id = "md-2", mood = 4, timestamp = now - 86_400_000L),
+      MoodEntry(id = "md-3", mood = 5, timestamp = now),
+    )
+    val points = MoodAnalytics.computeLineGraphPoints(entries, InsightTimeRange.WEEK, now)
+    val state = MoodyUiState(
+      allEntries = entries,
+      insightRange = InsightTimeRange.WEEK,
+      stats = MoodAnalytics.computeStatsForRange(entries, InsightTimeRange.WEEK, now),
+      lineGraphPoints = points,
+      heatmapCells = MoodAnalytics.computeCalendarHeatmap(entries, nowMillis = now),
+      moodObservation = MoodAnalytics.computeMoodObservation(points),
+    )
+    var backClicks = 0
+
+    composeRule.setContent {
+      MoodyTheme(appearanceMode = AppearanceMode.DARK, palette = MoodyPalette.TEAL_OBSIDIAN) {
+        InsightsMoodScreen(
+          uiState = state,
+          onBack = { backClicks++ },
+          onSelectRange = {},
+          onSelectHeatmapDay = {},
+        )
+      }
+    }
+    composeRule.waitForIdle()
+
+    composeRule.onNodeWithText("Mood & Emotional Patterns").assertIsDisplayed()
+    composeRule.onNodeWithTag("stat_avg_mood").assertIsDisplayed()
+    composeRule.onNodeWithTag("stat_total_entries").assertIsDisplayed()
+    composeRule.onNodeWithTag("stat_streak").assertIsDisplayed()
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("mood_over_time_card"))
+    composeRule.onNodeWithText("Mood Over Time").assertIsDisplayed()
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("mood_calendar_card"))
+    composeRule.onNodeWithText("Mood Calendar").assertIsDisplayed()
+
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("insights_back_button"))
+    composeRule.onNodeWithTag("insights_back_button").performClick()
+    assertEquals(1, backClicks)
+  }
+
+  @Test
+  fun `insights habits screen displays time of day, frequency stats, and mode toggle`() {
+    val now = 1_764_140_000_000L
+    val entries = listOf(
+      MoodEntry(id = "hb-1", mood = 4, timestamp = now),
+      MoodEntry(id = "hb-2", mood = 5, timestamp = now - 3_600_000L),
+      MoodEntry(id = "hb-3", mood = 3, timestamp = now - 86_400_000L),
+    )
+    val state = MoodyUiState(
+      allEntries = entries,
+      insightRange = InsightTimeRange.WEEK,
+      timeOfDayMode = TimeOfDayMode.PART_OF_DAY,
+      habitsAnalytics = MoodAnalytics.computeHabitsAnalytics(entries, InsightTimeRange.WEEK, TimeOfDayMode.PART_OF_DAY, now),
+    )
+    var toggledMode: TimeOfDayMode? = null
+
+    composeRule.setContent {
+      MoodyTheme(appearanceMode = AppearanceMode.DARK, palette = MoodyPalette.TEAL_OBSIDIAN) {
+        InsightsHabitsScreen(
+          uiState = state,
+          onBack = {},
+          onSelectRange = {},
+          onSelectTimeOfDayMode = { toggledMode = it },
+        )
+      }
+    }
+    composeRule.waitForIdle()
+
+    composeRule.onNodeWithText("Habits & Time of Day").assertIsDisplayed()
+    composeRule.onNodeWithTag("habits_stat_active_days").assertIsDisplayed()
+    composeRule.onNodeWithTag("habits_stat_consistency").assertIsDisplayed()
+    composeRule.onNodeWithTag("habits_stat_streak").assertIsDisplayed()
+    composeRule.onNodeWithText("2/7").assertIsDisplayed()
+    composeRule.onNodeWithText("29%").assertIsDisplayed()
+
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("habits_time_of_day_card"))
+    composeRule.onNodeWithText("Time of Day").assertIsDisplayed()
+    composeRule.onNodeWithTag("tod_mode_hourly").performClick()
+    assertEquals(TimeOfDayMode.HOURLY, toggledMode)
+
+    composeRule.onNodeWithTag("insights_list").performScrollToNode(hasTestTag("habits_frequency_card"))
+    composeRule.onNodeWithText("Logging Frequency").assertIsDisplayed()
+    composeRule.onNodeWithText("3 entries").assertIsDisplayed()
+    composeRule.onNodeWithText("1.5 logs").assertIsDisplayed()
   }
 }

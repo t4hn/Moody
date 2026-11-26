@@ -11,7 +11,12 @@ enum class InsightTimeRange(val label: String) {
   DAY("Day"),
   WEEK("Week"),
   MONTH("Month"),
-  ALL("All"),
+  THREE_MONTHS("3 Months"),
+  ALL("All");
+
+  companion object {
+    val categoryRanges: List<InsightTimeRange> = listOf(WEEK, MONTH, THREE_MONTHS, ALL)
+  }
 }
 
 enum class TimeOfDayMode(val label: String) {
@@ -64,6 +69,12 @@ data class SleepQualityPoint(
   val sleepQuality: Int?,
 )
 
+data class SleepDurationPoint(
+  val dayStartMillis: Long,
+  val label: String,
+  val sleepDurationMinutes: Int?,
+)
+
 data class WeekdaySleepAverage(
   val weekdayIndex: Int,
   val weekdayLabel: String,
@@ -78,8 +89,11 @@ data class SleepAnalyticsSummary(
   val averageDurationMinutes: Int? = null,
   val durationNightCount: Int = 0,
   val qualityHistory: List<SleepQualityPoint> = emptyList(),
+  val durationHistory: List<SleepDurationPoint> = emptyList(),
   val weekdayAverages: List<WeekdaySleepAverage> = emptyList(),
   val hasAnySleepData: Boolean = false,
+  val qualityObservation: String? = null,
+  val durationObservation: String? = null,
 )
 
 enum class WellbeingMetric(
@@ -104,6 +118,7 @@ data class WellbeingMetricSummary(
   val average: Float? = null,
   val entryCount: Int = 0,
   val history: List<WellbeingHistoryPoint> = emptyList(),
+  val observation: String? = null,
 ) {
   val hasData: Boolean
     get() = entryCount > 0 && average != null
@@ -133,6 +148,18 @@ data class WellbeingAnalyticsSummary(
   val hasAnyWellbeingData: Boolean
     get() = energy.hasData || stress.hasData || anxiety.hasData
 }
+
+data class HabitsAnalyticsSummary(
+  val timeOfDayBuckets: List<TimeOfDayBucket> = emptyList(),
+  val totalEntriesInRange: Int = 0,
+  val activeDaysInRange: Int = 0,
+  val windowDays: Int = 0,
+  val consistencyPercent: Int = 0,
+  val averageEntriesPerActiveDay: Float? = null,
+  val currentStreakDays: Int = 0,
+  val mostActivePeriod: String? = null,
+  val timeOfDayObservation: String? = null,
+)
 
 object MoodAnalytics {
 
@@ -191,6 +218,58 @@ object MoodAnalytics {
     )
   }
 
+  fun filterEntriesByRange(
+    entries: List<MoodEntry>,
+    range: InsightTimeRange,
+    nowMillis: Long = System.currentTimeMillis(),
+    timeZone: TimeZone = TimeZone.getDefault(),
+  ): List<MoodEntry> {
+    if (entries.isEmpty()) return emptyList()
+    val todayStart = DateTimeUtils.startOfDayMillis(nowMillis, timeZone)
+    return when (range) {
+      InsightTimeRange.DAY -> {
+        entries.filter { DateTimeUtils.startOfDayMillis(it.timestamp, timeZone) == todayStart }
+      }
+      InsightTimeRange.WEEK -> {
+        val start = DateTimeUtils.daysAgoStartMillis(6, nowMillis, timeZone)
+        entries.filter { DateTimeUtils.startOfDayMillis(it.timestamp, timeZone) in start..todayStart }
+      }
+      InsightTimeRange.MONTH -> {
+        val start = DateTimeUtils.daysAgoStartMillis(29, nowMillis, timeZone)
+        entries.filter { DateTimeUtils.startOfDayMillis(it.timestamp, timeZone) in start..todayStart }
+      }
+      InsightTimeRange.THREE_MONTHS -> {
+        val start = DateTimeUtils.daysAgoStartMillis(89, nowMillis, timeZone)
+        entries.filter { DateTimeUtils.startOfDayMillis(it.timestamp, timeZone) in start..todayStart }
+      }
+      InsightTimeRange.ALL -> entries
+    }
+  }
+
+  fun computeStatsForRange(
+    allEntries: List<MoodEntry>,
+    range: InsightTimeRange,
+    nowMillis: Long = System.currentTimeMillis(),
+    timeZone: TimeZone = TimeZone.getDefault(),
+  ): MoodStats {
+    val fullStats = computeStats(allEntries, nowMillis)
+    val rangedEntries = filterEntriesByRange(allEntries, range, nowMillis, timeZone)
+    if (rangedEntries.isEmpty()) {
+      return MoodStats(
+        averageMood = null,
+        totalEntries = 0,
+        currentStreakDays = fullStats.currentStreakDays,
+        distinctTagCount = 0,
+      )
+    }
+    return MoodStats(
+      averageMood = rangedEntries.map { it.mood }.average().toFloat(),
+      totalEntries = rangedEntries.size,
+      currentStreakDays = fullStats.currentStreakDays,
+      distinctTagCount = rangedEntries.flatMap { it.tags }.map { it.lowercase() }.toSet().size,
+    )
+  }
+
   fun computeLineGraphPoints(
     entries: List<MoodEntry>,
     range: InsightTimeRange,
@@ -209,6 +288,10 @@ object MoodAnalytics {
       }
       InsightTimeRange.MONTH -> {
         val start = DateTimeUtils.daysAgoStartMillis(29, nowMillis)
+        entries.filter { it.timestamp >= start }
+      }
+      InsightTimeRange.THREE_MONTHS -> {
+        val start = DateTimeUtils.daysAgoStartMillis(89, nowMillis)
         entries.filter { it.timestamp >= start }
       }
       InsightTimeRange.ALL -> entries
@@ -410,6 +493,10 @@ object MoodAnalytics {
         val start = DateTimeUtils.daysAgoStartMillis(29, nowMillis, timeZone)
         deduplicatedByDay.values.filter { it.dayStartMillis in start..todayStart }
       }
+      InsightTimeRange.THREE_MONTHS -> {
+        val start = DateTimeUtils.daysAgoStartMillis(89, nowMillis, timeZone)
+        deduplicatedByDay.values.filter { it.dayStartMillis in start..todayStart }
+      }
       InsightTimeRange.ALL -> {
         deduplicatedByDay.values.toList()
       }
@@ -427,6 +514,10 @@ object MoodAnalytics {
       .filter { it.sleepQuality != null }
       .associateBy { it.dayStartMillis }
 
+    val recordedDurationByDay = filtered
+      .filter { it.sleepDurationMinutes != null }
+      .associateBy { it.dayStartMillis }
+
     val qualityHistory = if (recordedQualityByDay.isEmpty()) {
       emptyList()
     } else {
@@ -434,6 +525,7 @@ object MoodAnalytics {
         InsightTimeRange.DAY -> todayStart to todayStart
         InsightTimeRange.WEEK -> DateTimeUtils.daysAgoStartMillis(6, nowMillis, timeZone) to todayStart
         InsightTimeRange.MONTH -> DateTimeUtils.daysAgoStartMillis(29, nowMillis, timeZone) to todayStart
+        InsightTimeRange.THREE_MONTHS -> DateTimeUtils.daysAgoStartMillis(89, nowMillis, timeZone) to todayStart
         InsightTimeRange.ALL -> recordedQualityByDay.keys.min() to recordedQualityByDay.keys.max()
       }
 
@@ -465,6 +557,45 @@ object MoodAnalytics {
       }
     }
 
+    val durationHistory = if (recordedDurationByDay.isEmpty()) {
+      emptyList()
+    } else {
+      val (spanStart, spanEnd) = when (range) {
+        InsightTimeRange.DAY -> todayStart to todayStart
+        InsightTimeRange.WEEK -> DateTimeUtils.daysAgoStartMillis(6, nowMillis, timeZone) to todayStart
+        InsightTimeRange.MONTH -> DateTimeUtils.daysAgoStartMillis(29, nowMillis, timeZone) to todayStart
+        InsightTimeRange.THREE_MONTHS -> DateTimeUtils.daysAgoStartMillis(89, nowMillis, timeZone) to todayStart
+        InsightTimeRange.ALL -> recordedDurationByDay.keys.min() to recordedDurationByDay.keys.max()
+      }
+
+      val approxDays = ((spanEnd - spanStart) / 86_400_000L).coerceAtLeast(0L)
+      if (approxDays > 1095L) {
+        recordedDurationByDay.keys.sorted().map { dayStart ->
+          SleepDurationPoint(
+            dayStartMillis = dayStart,
+            label = DateTimeUtils.formatShortDate(dayStart, timeZone),
+            sleepDurationMinutes = recordedDurationByDay[dayStart]?.sleepDurationMinutes,
+          )
+        }
+      } else {
+        buildList {
+          var cursor = spanStart
+          var guard = 0
+          while (cursor <= spanEnd && guard < 1200) {
+            add(
+              SleepDurationPoint(
+                dayStartMillis = cursor,
+                label = DateTimeUtils.formatShortDate(cursor, timeZone),
+                sleepDurationMinutes = recordedDurationByDay[cursor]?.sleepDurationMinutes,
+              ),
+            )
+            cursor = DateTimeUtils.nextDayStartMillis(cursor, timeZone)
+            guard++
+          }
+        }
+      }
+    }
+
     val groupedByWeekday = recordedQualityByDay.values.groupBy {
       DateTimeUtils.weekdayMondayFirstIndex(it.dayStartMillis, timeZone)
     }
@@ -480,14 +611,27 @@ object MoodAnalytics {
       )
     }
 
+    val qualityObservation = computeScaleObservation(
+      values = qualityHistory.mapNotNull { it.sleepQuality?.toFloat() },
+      higherLabel = "Sleep quality has improved across your latest recorded nights.",
+      lowerLabel = "Recorded sleep quality has dipped across your latest nights.",
+      steadyLabel = "Recorded sleep quality has been fairly consistent in this period.",
+    )
+    val durationObservation = computeDurationObservation(
+      minutesValues = durationHistory.mapNotNull { it.sleepDurationMinutes },
+    )
+
     return SleepAnalyticsSummary(
       averageQuality = averageQuality,
       qualityNightCount = qualityNightCount,
       averageDurationMinutes = averageDurationMinutes,
       durationNightCount = durationNightCount,
       qualityHistory = qualityHistory,
+      durationHistory = durationHistory,
       weekdayAverages = weekdayAverages,
       hasAnySleepData = qualityNightCount > 0 || durationNightCount > 0,
+      qualityObservation = qualityObservation,
+      durationObservation = durationObservation,
     )
   }
 
@@ -500,6 +644,7 @@ object MoodAnalytics {
     val todayStart = DateTimeUtils.startOfDayMillis(nowMillis, timeZone)
     val weekStart = DateTimeUtils.daysAgoStartMillis(6, nowMillis, timeZone)
     val monthStart = DateTimeUtils.daysAgoStartMillis(29, nowMillis, timeZone)
+    val threeMonthStart = DateTimeUtils.daysAgoStartMillis(89, nowMillis, timeZone)
 
     val filteredWithDay = entries.mapNotNull { entry ->
       val dayStart = DateTimeUtils.startOfDayMillis(entry.timestamp, timeZone)
@@ -507,6 +652,7 @@ object MoodAnalytics {
         InsightTimeRange.DAY -> dayStart == todayStart
         InsightTimeRange.WEEK -> dayStart in weekStart..todayStart
         InsightTimeRange.MONTH -> dayStart in monthStart..todayStart
+        InsightTimeRange.THREE_MONTHS -> dayStart in threeMonthStart..todayStart
         InsightTimeRange.ALL -> true
       }
       if (included) dayStart to entry else null
@@ -538,6 +684,7 @@ object MoodAnalytics {
         InsightTimeRange.DAY -> todayStart to todayStart
         InsightTimeRange.WEEK -> weekStart to todayStart
         InsightTimeRange.MONTH -> monthStart to todayStart
+        InsightTimeRange.THREE_MONTHS -> threeMonthStart to todayStart
         InsightTimeRange.ALL -> dailyAverageByDay.keys.min() to dailyAverageByDay.keys.max()
       }
 
@@ -570,11 +717,33 @@ object MoodAnalytics {
         }
       }
 
+      val observation = when (metric) {
+        WellbeingMetric.ENERGY -> computeScaleObservation(
+          values = history.mapNotNull { it.averageValue },
+          higherLabel = "Your average energy has increased across your latest recorded entries.",
+          lowerLabel = "Your average energy has decreased across your latest recorded entries.",
+          steadyLabel = "Your recorded energy levels have stayed fairly steady in this period.",
+        )
+        WellbeingMetric.STRESS -> computeScaleObservation(
+          values = history.mapNotNull { it.averageValue },
+          higherLabel = "Recorded stress has been higher across your latest entries.",
+          lowerLabel = "Recorded stress has eased across your latest entries.",
+          steadyLabel = "Recorded stress has stayed relatively steady in this period.",
+        )
+        WellbeingMetric.ANXIETY -> computeScaleObservation(
+          values = history.mapNotNull { it.averageValue },
+          higherLabel = "Recorded anxiety has been higher across your latest entries.",
+          lowerLabel = "Recorded anxiety has eased across your latest entries.",
+          steadyLabel = "Recorded anxiety has stayed relatively steady in this period.",
+        )
+      }
+
       return WellbeingMetricSummary(
         metric = metric,
         average = overallAverage,
         entryCount = validSamples.size,
         history = history,
+        observation = observation,
       ) to dailyAverageByDay
     }
 
@@ -618,5 +787,128 @@ object MoodAnalytics {
       anxiety = anxietySummary,
       weekdayAverages = weekdayAverages,
     )
+  }
+
+  fun computeHabitsAnalytics(
+    allEntries: List<MoodEntry>,
+    range: InsightTimeRange,
+    timeOfDayMode: TimeOfDayMode,
+    nowMillis: Long = System.currentTimeMillis(),
+    timeZone: TimeZone = TimeZone.getDefault(),
+  ): HabitsAnalyticsSummary {
+    val rangedEntries = filterEntriesByRange(allEntries, range, nowMillis, timeZone)
+    val streak = computeStats(allEntries, nowMillis).currentStreakDays
+    val buckets = computeTimeOfDayBuckets(rangedEntries, timeOfDayMode)
+
+    if (rangedEntries.isEmpty()) {
+      return HabitsAnalyticsSummary(
+        timeOfDayBuckets = buckets,
+        currentStreakDays = streak,
+      )
+    }
+
+    val activeDays = rangedEntries.map { DateTimeUtils.startOfDayMillis(it.timestamp, timeZone) }.toSet()
+    val todayStart = DateTimeUtils.startOfDayMillis(nowMillis, timeZone)
+    val windowDays = when (range) {
+      InsightTimeRange.DAY -> 1
+      InsightTimeRange.WEEK -> 7
+      InsightTimeRange.MONTH -> 30
+      InsightTimeRange.THREE_MONTHS -> 90
+      InsightTimeRange.ALL -> {
+        val earliestDay = activeDays.min()
+        (((todayStart - earliestDay) / 86_400_000L).toInt() + 1).coerceAtLeast(1)
+      }
+    }
+    val consistencyPercent = ((activeDays.size.toFloat() / windowDays.coerceAtLeast(1)) * 100f)
+      .roundToInt()
+      .coerceIn(0, 100)
+    val avgPerActiveDay = rangedEntries.size.toFloat() / activeDays.size.coerceAtLeast(1)
+
+    val partBuckets = computeTimeOfDayBuckets(rangedEntries, TimeOfDayMode.PART_OF_DAY)
+    val mostActivePeriod = partBuckets
+      .filter { it.entryCount > 0 }
+      .maxByOrNull { it.entryCount }
+      ?.label
+
+    val todObservation = computeTimeOfDayObservation(
+      totalEntries = rangedEntries.size,
+      partBuckets = partBuckets,
+    )
+
+    return HabitsAnalyticsSummary(
+      timeOfDayBuckets = buckets,
+      totalEntriesInRange = rangedEntries.size,
+      activeDaysInRange = activeDays.size,
+      windowDays = windowDays,
+      consistencyPercent = consistencyPercent,
+      averageEntriesPerActiveDay = avgPerActiveDay,
+      currentStreakDays = streak,
+      mostActivePeriod = mostActivePeriod,
+      timeOfDayObservation = todObservation,
+    )
+  }
+
+  fun computeMoodObservation(points: List<MoodGraphPoint>): String? =
+    computeScaleObservation(
+      values = points.map { it.value },
+      higherLabel = "Recorded mood has trended higher across your latest entries.",
+      lowerLabel = "Recorded mood has been lower in your most recent entries.",
+      steadyLabel = "Your recorded mood has stayed relatively consistent in this period.",
+    )
+
+  internal fun computeScaleObservation(
+    values: List<Float>,
+    higherLabel: String,
+    lowerLabel: String,
+    steadyLabel: String,
+  ): String? {
+    if (values.size < 3) return null
+    val spread = (values.max() - values.min())
+    val split = (values.size / 2).coerceAtLeast(1)
+    val earlierAvg = values.take(split).average().toFloat()
+    val recentAvg = values.drop(split).average().toFloat()
+    val delta = recentAvg - earlierAvg
+
+    return when {
+      delta >= 0.5f -> higherLabel
+      delta <= -0.5f -> lowerLabel
+      spread <= 0.8f -> steadyLabel
+      else -> null
+    }
+  }
+
+  internal fun computeDurationObservation(minutesValues: List<Int>): String? {
+    if (minutesValues.size < 3) return null
+    val spread = minutesValues.max() - minutesValues.min()
+    val split = (minutesValues.size / 2).coerceAtLeast(1)
+    val earlierAvg = minutesValues.take(split).average()
+    val recentAvg = minutesValues.drop(split).average()
+    val delta = recentAvg - earlierAvg
+
+    return when {
+      delta >= 35.0 -> "Recorded sleep duration has increased across your latest nights."
+      delta <= -35.0 -> "Recorded sleep duration has been shorter across your latest nights."
+      spread <= 45 -> "Your recorded sleep duration has stayed relatively consistent."
+      else -> null
+    }
+  }
+
+  internal fun computeTimeOfDayObservation(
+    totalEntries: Int,
+    partBuckets: List<TimeOfDayBucket>,
+  ): String? {
+    if (totalEntries < 5) return null
+    val populated = partBuckets.filter { it.entryCount > 0 && it.averageMood != null }
+    if (populated.size < 2) return null
+
+    val highest = populated.maxByOrNull { it.averageMood ?: 0f } ?: return null
+    val lowest = populated.minByOrNull { it.averageMood ?: 5f } ?: return null
+    val spread = (highest.averageMood ?: 0f) - (lowest.averageMood ?: 0f)
+
+    return when {
+      spread >= 0.6f -> "Recorded mood has averaged highest during the ${highest.label.lowercase()}."
+      spread <= 0.35f -> "Your recorded mood has been fairly consistent across times of day."
+      else -> null
+    }
   }
 }

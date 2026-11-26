@@ -620,4 +620,150 @@ class MoodyCoreUnitTest {
     assertEquals(7, emptySummary.weekdayAverages.size)
     assertTrue(emptySummary.weekdayAverages.all { !it.hasAnyData })
   }
+
+  @Test
+  fun `three months timeframe filters 90-day window across mood, sleep duration history, and wellbeing`() {
+    val tz = TimeZone.getTimeZone("UTC")
+    val now = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-11-25", tz)!! + 12 * 3_600_000L
+    val inThreeMonthsBoundary = DateTimeUtils.daysAgoStartMillis(89, now, tz) + 9 * 3_600_000L
+    val outsideThreeMonths = DateTimeUtils.daysAgoStartMillis(90, now, tz) + 9 * 3_600_000L
+    val monthEntry = DateTimeUtils.daysAgoStartMillis(10, now, tz) + 9 * 3_600_000L
+
+    val entries = listOf(
+      MoodEntry(id = "e1", mood = 5, timestamp = monthEntry, energyLevel = 5),
+      MoodEntry(id = "e2", mood = 3, timestamp = inThreeMonthsBoundary, energyLevel = 3),
+      MoodEntry(id = "e3", mood = 1, timestamp = outsideThreeMonths, energyLevel = 1),
+    )
+
+    val monthStats = MoodAnalytics.computeStatsForRange(entries, InsightTimeRange.MONTH, now, tz)
+    assertEquals(1, monthStats.totalEntries)
+    assertEquals(5.0f, monthStats.averageMood!!, 0.001f)
+
+    val threeMonthStats = MoodAnalytics.computeStatsForRange(entries, InsightTimeRange.THREE_MONTHS, now, tz)
+    assertEquals(2, threeMonthStats.totalEntries)
+    assertEquals(4.0f, threeMonthStats.averageMood!!, 0.001f)
+
+    val threeMonthPoints = MoodAnalytics.computeLineGraphPoints(entries, InsightTimeRange.THREE_MONTHS, now)
+    assertEquals(2, threeMonthPoints.size)
+
+    val threeMonthWellbeing = MoodAnalytics.computeWellbeingAnalytics(entries, InsightTimeRange.THREE_MONTHS, now, tz)
+    assertEquals(2, threeMonthWellbeing.energy.entryCount)
+    assertEquals(4.0f, threeMonthWellbeing.energy.average!!, 0.001f)
+    assertEquals(90, threeMonthWellbeing.energy.history.size)
+
+    val dayKeyIn = DateTimeUtils.formatFileDate(inThreeMonthsBoundary, tz)
+    val dayKeyOut = DateTimeUtils.formatFileDate(outsideThreeMonths, tz)
+    val contexts = listOf(
+      DailyContext(dayKey = "2026-11-24", sleepDurationMinutes = 480, sleepQuality = 4),
+      DailyContext(dayKey = dayKeyIn, sleepDurationMinutes = 420, sleepQuality = 3),
+      DailyContext(dayKey = dayKeyOut, sleepDurationMinutes = 300, sleepQuality = 1),
+    )
+    val sleepSummary = MoodAnalytics.computeSleepAnalytics(contexts, InsightTimeRange.THREE_MONTHS, now, tz)
+    assertEquals(2, sleepSummary.durationNightCount)
+    assertEquals(450, sleepSummary.averageDurationMinutes)
+    assertEquals(90, sleepSummary.durationHistory.size)
+    assertEquals(420, sleepSummary.durationHistory.first().sleepDurationMinutes)
+    assertNull(sleepSummary.durationHistory.last().sleepDurationMinutes)
+  }
+
+  @Test
+  fun `habits analytics calculates active days, consistency percentage, average per day, and most active period`() {
+    val tz = TimeZone.getTimeZone("UTC")
+    val now = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-11-25", tz)!! + 20 * 3_600_000L
+    val nov25 = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-11-25", tz)!!
+    val nov24 = DateTimeUtils.parseDayKeyStartMillisOrNull("2026-11-24", tz)!!
+
+    val entries = listOf(
+      MoodEntry(id = "h1", mood = 4, timestamp = nov25 + 8 * 3_600_000L), // Morning
+      MoodEntry(id = "h2", mood = 5, timestamp = nov25 + 9 * 3_600_000L), // Morning
+      MoodEntry(id = "h3", mood = 3, timestamp = nov24 + 19 * 3_600_000L), // Evening
+    )
+
+    val summary = MoodAnalytics.computeHabitsAnalytics(
+      allEntries = entries,
+      range = InsightTimeRange.WEEK,
+      timeOfDayMode = TimeOfDayMode.PART_OF_DAY,
+      nowMillis = now,
+      timeZone = tz,
+    )
+    assertEquals(3, summary.totalEntriesInRange)
+    assertEquals(2, summary.activeDaysInRange)
+    assertEquals(7, summary.windowDays)
+    assertEquals(29, summary.consistencyPercent) // 2/7 = 28.57 -> 29%
+    assertEquals(1.5f, summary.averageEntriesPerActiveDay!!, 0.001f)
+    assertEquals(2, summary.currentStreakDays)
+    assertEquals("Morning", summary.mostActivePeriod)
+
+    val empty = MoodAnalytics.computeHabitsAnalytics(
+      allEntries = emptyList(),
+      range = InsightTimeRange.WEEK,
+      timeOfDayMode = TimeOfDayMode.PART_OF_DAY,
+      nowMillis = now,
+      timeZone = tz,
+    )
+    assertEquals(0, empty.totalEntriesInRange)
+    assertEquals(0, empty.activeDaysInRange)
+    assertNull(empty.averageEntriesPerActiveDay)
+    assertNull(empty.mostActivePeriod)
+    assertNull(empty.timeOfDayObservation)
+  }
+
+  @Test
+  fun `chart observation helpers enforce minimum sample thresholds and ignore normal fluctuation`() {
+    // Fewer than 3 samples -> null
+    assertNull(
+      MoodAnalytics.computeScaleObservation(
+        values = listOf(2f, 5f),
+        higherLabel = "Up",
+        lowerLabel = "Down",
+        steadyLabel = "Steady",
+      ),
+    )
+    assertNull(MoodAnalytics.computeDurationObservation(listOf(360, 480)))
+
+    // Mixed normal fluctuation without strong delta or tight consistency -> null
+    assertNull(
+      MoodAnalytics.computeScaleObservation(
+        values = listOf(2.0f, 4.5f, 2.2f, 3.8f),
+        higherLabel = "Up",
+        lowerLabel = "Down",
+        steadyLabel = "Steady",
+      ),
+    )
+    assertNull(MoodAnalytics.computeDurationObservation(listOf(360, 480, 390, 460)))
+
+    // Clear upward, downward, and steady observations
+    assertEquals(
+      "Up",
+      MoodAnalytics.computeScaleObservation(listOf(2f, 2f, 4f, 4f), "Up", "Down", "Steady"),
+    )
+    assertEquals(
+      "Down",
+      MoodAnalytics.computeScaleObservation(listOf(4.5f, 4.5f, 2.5f, 2.5f), "Up", "Down", "Steady"),
+    )
+    assertEquals(
+      "Steady",
+      MoodAnalytics.computeScaleObservation(listOf(3.8f, 4.0f, 4.1f, 3.9f), "Up", "Down", "Steady"),
+    )
+
+    assertTrue(MoodAnalytics.computeDurationObservation(listOf(360, 370, 430, 440))!!.contains("increased"))
+    assertTrue(MoodAnalytics.computeDurationObservation(listOf(460, 450, 380, 370))!!.contains("shorter"))
+    assertTrue(MoodAnalytics.computeDurationObservation(listOf(420, 430, 425, 435))!!.contains("consistent"))
+
+    // Time of day observation requires at least 5 total entries across >= 2 periods
+    val tooFewBuckets = listOf(
+      com.example.viewmodel.TimeOfDayBucket("Morning", "Morn", 4.5f, 2),
+      com.example.viewmodel.TimeOfDayBucket("Evening", "Eve", 2.0f, 2),
+    )
+    assertNull(MoodAnalytics.computeTimeOfDayObservation(totalEntries = 4, partBuckets = tooFewBuckets))
+
+    val distinctPeriodBuckets = listOf(
+      com.example.viewmodel.TimeOfDayBucket("Morning", "Morn", 4.6f, 3),
+      com.example.viewmodel.TimeOfDayBucket("Evening", "Eve", 2.4f, 3),
+    )
+    assertTrue(
+      MoodAnalytics.computeTimeOfDayObservation(totalEntries = 6, partBuckets = distinctPeriodBuckets)!!
+        .contains("morning"),
+    )
+  }
 }
